@@ -436,6 +436,7 @@ dateTimeFunctionName
     | DAY
     | DAYNAME
     | DAYOFMONTH
+    | DAY_OF_MONTH
     | DAYOFWEEK
     | DAYOFYEAR
     | DAY_OF_YEAR
@@ -443,6 +444,7 @@ dateTimeFunctionName
     | FROM_DAYS
     | FROM_UNIXTIME
     | HOUR
+    | HOUR_OF_DAY
     | MAKEDATE
     | MAKETIME
     | MICROSECOND
