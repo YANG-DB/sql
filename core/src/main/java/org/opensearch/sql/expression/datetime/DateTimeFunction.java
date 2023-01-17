@@ -6,7 +6,9 @@
 
 package org.opensearch.sql.expression.datetime;
 
+
 import static java.time.temporal.ChronoUnit.DAYS;
+import static java.time.temporal.ChronoUnit.HOURS;
 import static java.time.temporal.ChronoUnit.MINUTES;
 import static java.time.temporal.ChronoUnit.MONTHS;
 import static java.time.temporal.ChronoUnit.SECONDS;
@@ -64,7 +66,6 @@ import org.opensearch.sql.data.model.ExprTimestampValue;
 import org.opensearch.sql.data.model.ExprValue;
 import org.opensearch.sql.data.type.ExprCoreType;
 import org.opensearch.sql.exception.ExpressionEvaluationException;
-import org.opensearch.sql.exception.SemanticCheckException;
 import org.opensearch.sql.expression.function.BuiltinFunctionName;
 import org.opensearch.sql.expression.function.BuiltinFunctionRepository;
 import org.opensearch.sql.expression.function.DefaultFunctionResolver;
@@ -113,14 +114,16 @@ public class DateTimeFunction {
     repository.register(date_sub());
     repository.register(day());
     repository.register(dayName());
-    repository.register(dayOfMonth());
+    repository.register(dayOfMonth(BuiltinFunctionName.DAYOFMONTH));
+    repository.register(dayOfMonth(BuiltinFunctionName.DAY_OF_MONTH));
     repository.register(dayOfWeek(BuiltinFunctionName.DAYOFWEEK.getName()));
     repository.register(dayOfWeek(BuiltinFunctionName.DAY_OF_WEEK.getName()));
     repository.register(dayOfYear(BuiltinFunctionName.DAYOFYEAR));
     repository.register(dayOfYear(BuiltinFunctionName.DAY_OF_YEAR));
     repository.register(from_days());
     repository.register(from_unixtime());
-    repository.register(hour());
+    repository.register(hour(BuiltinFunctionName.HOUR));
+    repository.register(hour(BuiltinFunctionName.HOUR_OF_DAY));
     repository.register(localtime());
     repository.register(localtimestamp());
     repository.register(makedate());
@@ -444,12 +447,15 @@ public class DateTimeFunction {
   /**
    * DAYOFMONTH(STRING/DATE/DATETIME/TIMESTAMP). return the day of the month (1-31).
    */
-  private DefaultFunctionResolver dayOfMonth() {
-    return define(BuiltinFunctionName.DAYOFMONTH.getName(),
+  private DefaultFunctionResolver dayOfMonth(BuiltinFunctionName name) {
+    return define(name.getName(),
+        implWithProperties(nullMissingHandlingWithProperties(
+            (functionProperties, arg) -> DateTimeFunction.dayOfMonthToday(
+                functionProperties.getQueryStartClock())), INTEGER, TIME),
         impl(nullMissingHandling(DateTimeFunction::exprDayOfMonth), INTEGER, DATE),
         impl(nullMissingHandling(DateTimeFunction::exprDayOfMonth), INTEGER, DATETIME),
-        impl(nullMissingHandling(DateTimeFunction::exprDayOfMonth), INTEGER, TIMESTAMP),
-        impl(nullMissingHandling(DateTimeFunction::exprDayOfMonth), INTEGER, STRING)
+        impl(nullMissingHandling(DateTimeFunction::exprDayOfMonth), INTEGER, STRING),
+        impl(nullMissingHandling(DateTimeFunction::exprDayOfMonth), INTEGER, TIMESTAMP)
     );
   }
 
@@ -501,12 +507,13 @@ public class DateTimeFunction {
   }
 
   /**
-   * HOUR(STRING/TIME/DATETIME/TIMESTAMP). return the hour value for time.
+   * HOUR(STRING/TIME/DATETIME/DATE/TIMESTAMP). return the hour value for time.
    */
-  private DefaultFunctionResolver hour() {
-    return define(BuiltinFunctionName.HOUR.getName(),
+  private DefaultFunctionResolver hour(BuiltinFunctionName name) {
+    return define(name.getName(),
         impl(nullMissingHandling(DateTimeFunction::exprHour), INTEGER, STRING),
         impl(nullMissingHandling(DateTimeFunction::exprHour), INTEGER, TIME),
+        impl(nullMissingHandling(DateTimeFunction::exprHour), INTEGER, DATE),
         impl(nullMissingHandling(DateTimeFunction::exprHour), INTEGER, DATETIME),
         impl(nullMissingHandling(DateTimeFunction::exprHour), INTEGER, TIMESTAMP)
     );
@@ -844,6 +851,11 @@ public class DateTimeFunction {
     );
   }
 
+
+  private ExprValue dayOfMonthToday(Clock clock) {
+    return new ExprIntegerValue(LocalDateTime.now(clock).getDayOfMonth());
+  }
+
   private ExprValue dayOfYearToday(Clock clock) {
     return new ExprIntegerValue(LocalDateTime.now(clock).getDayOfYear());
   }
@@ -1058,7 +1070,7 @@ public class DateTimeFunction {
   /**
    * Day of Month implementation for ExprValue.
    *
-   * @param date ExprValue of Date/String type.
+   * @param date ExprValue of Date/Datetime/String/Time/Timestamp type.
    * @return ExprValue.
    */
   private ExprValue exprDayOfMonth(ExprValue date) {
@@ -1131,7 +1143,8 @@ public class DateTimeFunction {
    * @return ExprValue.
    */
   private ExprValue exprHour(ExprValue time) {
-    return new ExprIntegerValue(time.timeValue().getHour());
+    return new ExprIntegerValue(
+        HOURS.between(LocalTime.MIN, time.timeValue()));
   }
 
   /**
