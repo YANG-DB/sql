@@ -193,6 +193,14 @@ class AstExpressionBuilderTest {
   }
 
   @Test
+  public void canBuildExtractFunctionCall() {
+    assertEquals(
+        function("extract", stringLiteral("DAY"), dateLiteral("2023-02-09")).toString(),
+        buildExprAst("extract(DAY FROM \"2023-02-09\")").toString()
+    );
+  }
+
+  @Test
   public void canBuildGetFormatFunctionCall() {
     assertEquals(
         function("get_format", stringLiteral("DATE"), stringLiteral("USA")),
@@ -218,6 +226,26 @@ class AstExpressionBuilderTest {
     assertEquals(
         function("dayofmonth", dateLiteral("2020-07-07")),
         buildExprAst("dayofmonth(DATE '2020-07-07')")
+    );
+  }
+
+  @Test
+  public void canBuildTimestampAddFunctionCall() {
+    assertEquals(
+        function("timestampadd", stringLiteral("WEEK"), intLiteral(1), dateLiteral("2023-03-14")),
+        buildExprAst("timestampadd(WEEK, 1, DATE '2023-03-14')")
+    );
+  }
+
+  @Test
+  public void canBuildTimstampDiffFunctionCall() {
+    assertEquals(
+        function(
+            "timestampdiff",
+            stringLiteral("WEEK"),
+            timestampLiteral("2023-03-15 00:00:01"),
+            dateLiteral("2023-03-14")),
+        buildExprAst("timestampdiff(WEEK, TIMESTAMP '2023-03-15 00:00:01', DATE '2023-03-14')")
     );
   }
 

@@ -21,10 +21,10 @@ import org.apache.commons.lang3.StringUtils;
 import org.opensearch.common.ParsingException;
 import org.opensearch.common.Strings;
 import org.opensearch.common.xcontent.LoggingDeprecationHandler;
-import org.opensearch.common.xcontent.NamedXContentRegistry;
-import org.opensearch.common.xcontent.XContentParser;
 import org.opensearch.common.xcontent.json.JsonXContent;
 import org.opensearch.common.xcontent.json.JsonXContentParser;
+import org.opensearch.core.xcontent.NamedXContentRegistry;
+import org.opensearch.core.xcontent.XContentParser;
 import org.opensearch.geo.search.aggregations.bucket.geogrid.GeoHashGridAggregationBuilder;
 import org.opensearch.join.aggregations.JoinAggregationBuilders;
 import org.opensearch.script.Script;
@@ -72,7 +72,7 @@ public class AggMaker {
     private Where where;
 
     /**
-     * 分组查的聚合函数
+     *
      *
      * @param field
      * @return
@@ -535,7 +535,7 @@ public class AggMaker {
     }
 
     /**
-     * 按照时间范围分组
+     *
      *
      * @param field
      * @return
@@ -663,7 +663,7 @@ public class AggMaker {
     }
 
     /**
-     * 构建范围查询
+     *
      *
      * @param field
      * @return
@@ -723,7 +723,7 @@ public class AggMaker {
     }
 
     /**
-     * TOPHITS查询
+     * TOPHITS
      *
      * @param field
      * @return

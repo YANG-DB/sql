@@ -7,14 +7,21 @@
 package org.opensearch.sql.analysis;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.opensearch.sql.analysis.DataSourceSchemaIdentifierNameResolver.DEFAULT_DATASOURCE_NAME;
 import static org.opensearch.sql.data.type.ExprCoreType.LONG;
 import static org.opensearch.sql.data.type.ExprCoreType.STRING;
 
-import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableMap;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.apache.commons.lang3.tuple.Pair;
+import org.opensearch.sql.DataSourceSchemaName;
 import org.opensearch.sql.analysis.symbol.Namespace;
 import org.opensearch.sql.analysis.symbol.Symbol;
 import org.opensearch.sql.analysis.symbol.SymbolTable;
@@ -39,8 +46,6 @@ import org.opensearch.sql.planner.logical.LogicalPlan;
 import org.opensearch.sql.planner.physical.PhysicalPlan;
 import org.opensearch.sql.storage.StorageEngine;
 import org.opensearch.sql.storage.Table;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Bean;
 
 
 public class AnalyzerTestBase {
@@ -49,14 +54,45 @@ public class AnalyzerTestBase {
     return TestConfig.typeMapping;
   }
 
-  @Bean
   protected StorageEngine storageEngine() {
     return (dataSourceSchemaName, tableName) -> table;
   }
 
-  @Bean
+  protected StorageEngine prometheusStorageEngine() {
+    return new StorageEngine() {
+      @Override
+      public Collection<FunctionResolver> getFunctions() {
+        return Collections.singletonList(
+            new FunctionResolver() {
+
+              @Override
+              public Pair<FunctionSignature, FunctionBuilder> resolve(
+                  FunctionSignature unresolvedSignature) {
+                FunctionName functionName = FunctionName.of("query_range");
+                FunctionSignature functionSignature =
+                    new FunctionSignature(functionName, List.of(STRING, LONG, LONG, LONG));
+                return Pair.of(
+                    functionSignature,
+                    (functionProperties, args) ->
+                        new TestTableFunctionImplementation(functionName, args, table));
+              }
+
+              @Override
+              public FunctionName getFunctionName() {
+                return FunctionName.of("query_range");
+              }
+            });
+      }
+
+      @Override
+      public Table getTable(DataSourceSchemaName dataSourceSchemaName, String tableName) {
+        return table;
+      }
+    };
+  }
+
   protected Table table() {
-    return new Table() {
+    return Optional.ofNullable(table).orElseGet(() -> new Table() {
       @Override
       public boolean exists() {
         return true;
@@ -76,31 +112,13 @@ public class AnalyzerTestBase {
       public PhysicalPlan implement(LogicalPlan plan) {
         throw new UnsupportedOperationException();
       }
-    };
+    });
   }
 
-  @Bean
-  protected Table dataSourceTable() {
-    return new Table() {
-      @Override
-      public Map<String, ExprType> getFieldTypes() {
-        return typeMapping();
-      }
-
-      @Override
-      public PhysicalPlan implement(LogicalPlan plan) {
-        throw new UnsupportedOperationException();
-      }
-    };
-  }
-
-  @Bean
   protected DataSourceService dataSourceService() {
-    return new DefaultDataSourceService();
+    return Optional.ofNullable(dataSourceService).orElseGet(DefaultDataSourceService::new);
   }
 
-
-  @Bean
   protected SymbolTable symbolTable() {
     SymbolTable symbolTable = new SymbolTable();
     typeMapping().entrySet()
@@ -110,7 +128,6 @@ public class AnalyzerTestBase {
     return symbolTable;
   }
 
-  @Bean
   protected Environment<Expression, ExprType> typeEnv() {
     return var -> {
       if (var instanceof ReferenceExpression) {
@@ -123,61 +140,30 @@ public class AnalyzerTestBase {
     };
   }
 
-  @Autowired
-  protected AnalysisContext analysisContext;
+  protected AnalysisContext analysisContext = analysisContext(typeEnvironment(symbolTable()));
 
-  @Autowired
-  protected ExpressionAnalyzer expressionAnalyzer;
+  protected ExpressionAnalyzer expressionAnalyzer = expressionAnalyzer();
 
-  @Autowired
-  protected Analyzer analyzer;
+  protected Table table = table();
 
-  @Autowired
-  protected Table table;
+  protected DataSourceService dataSourceService = dataSourceService();
 
-  @Autowired
-  protected DataSourceService dataSourceService;
+  protected Analyzer analyzer = analyzer(expressionAnalyzer(), dataSourceService);
 
-  @Autowired
-  protected Environment<Expression, ExprType> typeEnv;
-
-  @Bean
   protected Analyzer analyzer(ExpressionAnalyzer expressionAnalyzer,
-                      DataSourceService dataSourceService,
-                      Table table) {
+                      DataSourceService dataSourceService) {
     BuiltinFunctionRepository functionRepository = BuiltinFunctionRepository.getInstance();
-    functionRepository.register("prometheus", new FunctionResolver() {
-
-      @Override
-      public Pair<FunctionSignature, FunctionBuilder> resolve(
-          FunctionSignature unresolvedSignature) {
-        FunctionName functionName = FunctionName.of("query_range");
-        FunctionSignature functionSignature =
-            new FunctionSignature(functionName, List.of(STRING, LONG, LONG, LONG));
-        return Pair.of(functionSignature,
-            (functionProperties, args) -> new TestTableFunctionImplementation(functionName, args,
-                table));
-      }
-
-      @Override
-      public FunctionName getFunctionName() {
-        return FunctionName.of("query_range");
-      }
-    });
     return new Analyzer(expressionAnalyzer, dataSourceService, functionRepository);
   }
 
-  @Bean
   protected TypeEnvironment typeEnvironment(SymbolTable symbolTable) {
     return new TypeEnvironment(null, symbolTable);
   }
 
-  @Bean
   protected AnalysisContext analysisContext(TypeEnvironment typeEnvironment) {
     return new AnalysisContext(typeEnvironment);
   }
 
-  @Bean
   protected ExpressionAnalyzer expressionAnalyzer() {
     return new ExpressionAnalyzer(BuiltinFunctionRepository.getInstance());
   }
@@ -192,29 +178,52 @@ public class AnalyzerTestBase {
 
   private class DefaultDataSourceService implements DataSourceService {
 
-    private StorageEngine storageEngine = storageEngine();
-    private final DataSource dataSource
-        = new DataSource("prometheus", DataSourceType.PROMETHEUS, storageEngine);
+    private final DataSource opensearchDataSource = new DataSource(DEFAULT_DATASOURCE_NAME,
+        DataSourceType.OPENSEARCH, storageEngine());
+    private final DataSource prometheusDataSource
+        = new DataSource("prometheus", DataSourceType.PROMETHEUS, prometheusStorageEngine());
 
 
     @Override
-    public Set<DataSource> getDataSources() {
-      return ImmutableSet.of(dataSource);
+    public Set<DataSourceMetadata> getDataSourceMetadata(boolean isDefaultDataSourceRequired) {
+      return Stream.of(opensearchDataSource, prometheusDataSource)
+          .map(ds -> new DataSourceMetadata(ds.getName(),
+              ds.getConnectorType(),Collections.emptyList(),
+              ImmutableMap.of())).collect(Collectors.toSet());
+    }
+
+    @Override
+    public DataSourceMetadata getDataSourceMetadata(String name) {
+      return null;
+    }
+
+    @Override
+    public void createDataSource(DataSourceMetadata metadata) {
+      throw new UnsupportedOperationException("unsupported operation");
     }
 
     @Override
     public DataSource getDataSource(String dataSourceName) {
-      return dataSource;
+      if ("prometheus".equals(dataSourceName)) {
+        return prometheusDataSource;
+      } else {
+        return opensearchDataSource;
+      }
     }
 
     @Override
-    public void addDataSource(DataSourceMetadata... metadatas) {
-      throw new UnsupportedOperationException();
+    public void updateDataSource(DataSourceMetadata dataSourceMetadata) {
+
     }
 
     @Override
-    public void clear() {
-      throw new UnsupportedOperationException();
+    public void deleteDataSource(String dataSourceName) {
+    }
+
+    @Override
+    public Boolean dataSourceExists(String dataSourceName) {
+      return dataSourceName.equals(DEFAULT_DATASOURCE_NAME)
+          || dataSourceName.equals("prometheus");
     }
   }
 

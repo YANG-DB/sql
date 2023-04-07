@@ -7,14 +7,8 @@ package org.opensearch.sql.plugin;
 
 import static org.opensearch.sql.datasource.model.DataSourceMetadata.defaultOpenSearchDataSourceMetadata;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import java.io.IOException;
-import java.io.InputStream;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -31,6 +25,8 @@ import org.opensearch.client.node.NodeClient;
 import org.opensearch.cluster.metadata.IndexNameExpressionResolver;
 import org.opensearch.cluster.node.DiscoveryNodes;
 import org.opensearch.cluster.service.ClusterService;
+import org.opensearch.common.inject.Injector;
+import org.opensearch.common.inject.ModulesBuilder;
 import org.opensearch.common.io.stream.NamedWriteableRegistry;
 import org.opensearch.common.settings.ClusterSettings;
 import org.opensearch.common.settings.IndexScopedSettings;
@@ -38,12 +34,11 @@ import org.opensearch.common.settings.Setting;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.common.settings.SettingsFilter;
 import org.opensearch.common.util.concurrent.OpenSearchExecutors;
-import org.opensearch.common.xcontent.NamedXContentRegistry;
+import org.opensearch.core.xcontent.NamedXContentRegistry;
 import org.opensearch.env.Environment;
 import org.opensearch.env.NodeEnvironment;
 import org.opensearch.plugins.ActionPlugin;
 import org.opensearch.plugins.Plugin;
-import org.opensearch.plugins.ReloadablePlugin;
 import org.opensearch.plugins.ScriptPlugin;
 import org.opensearch.repositories.RepositoriesService;
 import org.opensearch.rest.RestController;
@@ -51,56 +46,61 @@ import org.opensearch.rest.RestHandler;
 import org.opensearch.script.ScriptContext;
 import org.opensearch.script.ScriptEngine;
 import org.opensearch.script.ScriptService;
+import org.opensearch.sql.common.encryptor.EncryptorImpl;
+import org.opensearch.sql.datasource.DataSourceLoaderCache;
+import org.opensearch.sql.datasource.DataSourceMetadataStorage;
 import org.opensearch.sql.datasource.DataSourceService;
 import org.opensearch.sql.datasource.DataSourceServiceImpl;
+import org.opensearch.sql.datasource.DataSourceUserAuthorizationHelper;
 import org.opensearch.sql.datasource.model.DataSource;
-import org.opensearch.sql.datasource.model.DataSourceMetadata;
 import org.opensearch.sql.legacy.esdomain.LocalClusterState;
 import org.opensearch.sql.legacy.executor.AsyncRestExecutor;
 import org.opensearch.sql.legacy.metrics.Metrics;
 import org.opensearch.sql.legacy.plugin.RestSqlAction;
 import org.opensearch.sql.legacy.plugin.RestSqlStatsAction;
 import org.opensearch.sql.opensearch.client.OpenSearchNodeClient;
-import org.opensearch.sql.opensearch.security.SecurityAccess;
 import org.opensearch.sql.opensearch.setting.LegacyOpenDistroSettings;
 import org.opensearch.sql.opensearch.setting.OpenSearchSettings;
 import org.opensearch.sql.opensearch.storage.OpenSearchDataSourceFactory;
 import org.opensearch.sql.opensearch.storage.script.ExpressionScriptEngine;
 import org.opensearch.sql.opensearch.storage.serialization.DefaultExpressionSerializer;
-import org.opensearch.sql.plugin.config.OpenSearchPluginConfig;
+import org.opensearch.sql.plugin.config.OpenSearchPluginModule;
 import org.opensearch.sql.plugin.datasource.DataSourceSettings;
+import org.opensearch.sql.plugin.datasource.DataSourceUserAuthorizationHelperImpl;
+import org.opensearch.sql.plugin.datasource.OpenSearchDataSourceMetadataStorage;
+import org.opensearch.sql.plugin.model.CreateDataSourceActionResponse;
+import org.opensearch.sql.plugin.model.DeleteDataSourceActionResponse;
+import org.opensearch.sql.plugin.model.GetDataSourceActionResponse;
+import org.opensearch.sql.plugin.model.UpdateDataSourceActionResponse;
+import org.opensearch.sql.plugin.rest.RestDataSourceQueryAction;
 import org.opensearch.sql.plugin.rest.RestPPLQueryAction;
 import org.opensearch.sql.plugin.rest.RestPPLStatsAction;
 import org.opensearch.sql.plugin.rest.RestQuerySettingsAction;
 import org.opensearch.sql.plugin.transport.PPLQueryAction;
 import org.opensearch.sql.plugin.transport.TransportPPLQueryAction;
 import org.opensearch.sql.plugin.transport.TransportPPLQueryResponse;
-import org.opensearch.sql.ppl.config.PPLServiceConfig;
+import org.opensearch.sql.plugin.transport.datasource.TransportCreateDataSourceAction;
+import org.opensearch.sql.plugin.transport.datasource.TransportDeleteDataSourceAction;
+import org.opensearch.sql.plugin.transport.datasource.TransportGetDataSourceAction;
+import org.opensearch.sql.plugin.transport.datasource.TransportUpdateDataSourceAction;
 import org.opensearch.sql.prometheus.storage.PrometheusStorageFactory;
-import org.opensearch.sql.sql.config.SQLServiceConfig;
 import org.opensearch.sql.storage.DataSourceFactory;
 import org.opensearch.threadpool.ExecutorBuilder;
 import org.opensearch.threadpool.FixedExecutorBuilder;
 import org.opensearch.threadpool.ThreadPool;
 import org.opensearch.watcher.ResourceWatcherService;
-import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
-public class SQLPlugin extends Plugin implements ActionPlugin, ScriptPlugin, ReloadablePlugin {
+public class SQLPlugin extends Plugin implements ActionPlugin, ScriptPlugin {
 
   private static final Logger LOG = LogManager.getLogger();
-
   private ClusterService clusterService;
-
   /**
    * Settings should be inited when bootstrap the plugin.
    */
   private org.opensearch.sql.common.setting.Settings pluginSettings;
-
   private NodeClient client;
-
-  private AnnotationConfigApplicationContext applicationContext;
-
-  private DataSourceService dataSourceService;
+  private DataSourceServiceImpl dataSourceService;
+  private Injector injector;
 
   public String name() {
     return "sql";
@@ -127,10 +127,11 @@ public class SQLPlugin extends Plugin implements ActionPlugin, ScriptPlugin, Rel
 
     return Arrays.asList(
         new RestPPLQueryAction(pluginSettings, settings),
-        new RestSqlAction(settings, applicationContext),
+        new RestSqlAction(settings, injector),
         new RestSqlStatsAction(settings, restController),
         new RestPPLStatsAction(settings, restController),
-        new RestQuerySettingsAction(settings, restController));
+        new RestQuerySettingsAction(settings, restController),
+        new RestDataSourceQueryAction());
   }
 
   /**
@@ -141,7 +142,15 @@ public class SQLPlugin extends Plugin implements ActionPlugin, ScriptPlugin, Rel
     return Arrays.asList(
         new ActionHandler<>(
             new ActionType<>(PPLQueryAction.NAME, TransportPPLQueryResponse::new),
-            TransportPPLQueryAction.class));
+            TransportPPLQueryAction.class),
+        new ActionHandler<>(new ActionType<>(TransportCreateDataSourceAction.NAME,
+            CreateDataSourceActionResponse::new), TransportCreateDataSourceAction.class),
+        new ActionHandler<>(new ActionType<>(TransportGetDataSourceAction.NAME,
+            GetDataSourceActionResponse::new), TransportGetDataSourceAction.class),
+        new ActionHandler<>(new ActionType<>(TransportUpdateDataSourceAction.NAME,
+            UpdateDataSourceActionResponse::new), TransportUpdateDataSourceAction.class),
+        new ActionHandler<>(new ActionType<>(TransportDeleteDataSourceAction.NAME,
+            DeleteDataSourceActionResponse::new), TransportDeleteDataSourceAction.class));
   }
 
   @Override
@@ -160,37 +169,21 @@ public class SQLPlugin extends Plugin implements ActionPlugin, ScriptPlugin, Rel
     this.clusterService = clusterService;
     this.pluginSettings = new OpenSearchSettings(clusterService.getClusterSettings());
     this.client = (NodeClient) client;
-    this.dataSourceService =
-        new DataSourceServiceImpl(
-            new ImmutableSet.Builder<DataSourceFactory>()
-                .add(new OpenSearchDataSourceFactory(
-                        new OpenSearchNodeClient(this.client), pluginSettings))
-                .add(new PrometheusStorageFactory())
-                .build());
-    dataSourceService.addDataSource(defaultOpenSearchDataSourceMetadata());
-    loadDataSources(dataSourceService, clusterService.getSettings());
+    this.dataSourceService = createDataSourceService();
+    dataSourceService.createDataSource(defaultOpenSearchDataSourceMetadata());
     LocalClusterState.state().setClusterService(clusterService);
     LocalClusterState.state().setPluginSettings((OpenSearchSettings) pluginSettings);
 
-    this.applicationContext = new AnnotationConfigApplicationContext();
-    SecurityAccess.doPrivileged(
-        () -> {
-          applicationContext.registerBean(ClusterService.class, () -> clusterService);
-          applicationContext.registerBean(NodeClient.class, () -> (NodeClient) client);
-          applicationContext.registerBean(
-              org.opensearch.sql.common.setting.Settings.class, () -> pluginSettings);
-          applicationContext.registerBean(
-              DataSourceService.class, () -> dataSourceService);
-          applicationContext.register(OpenSearchPluginConfig.class);
-          applicationContext.register(PPLServiceConfig.class);
-          applicationContext.register(SQLServiceConfig.class);
-          applicationContext.refresh();
-          return null;
-        });
+    ModulesBuilder modules = new ModulesBuilder();
+    modules.add(new OpenSearchPluginModule());
+    modules.add(b -> {
+      b.bind(NodeClient.class).toInstance((NodeClient) client);
+      b.bind(org.opensearch.sql.common.setting.Settings.class).toInstance(pluginSettings);
+      b.bind(DataSourceService.class).toInstance(dataSourceService);
+    });
 
-    // return objects used by Guice to inject dependencies for e.g.,
-    // transport action handler constructors
-    return ImmutableList.of(applicationContext);
+    injector = modules.createInjector();
+    return ImmutableList.of(dataSourceService);
   }
 
   @Override
@@ -210,6 +203,7 @@ public class SQLPlugin extends Plugin implements ActionPlugin, ScriptPlugin, Rel
         .addAll(LegacyOpenDistroSettings.legacySettings())
         .addAll(OpenSearchSettings.pluginSettings())
         .add(DataSourceSettings.DATASOURCE_CONFIG)
+        .add(DataSourceSettings.DATASOURCE_MASTER_SECRET_KEY)
         .build();
   }
 
@@ -218,36 +212,22 @@ public class SQLPlugin extends Plugin implements ActionPlugin, ScriptPlugin, Rel
     return new ExpressionScriptEngine(new DefaultExpressionSerializer());
   }
 
-  @Override
-  public void reload(Settings settings) {
-    dataSourceService.clear();
-    dataSourceService.addDataSource(defaultOpenSearchDataSourceMetadata());
-    loadDataSources(dataSourceService, settings);
+  private DataSourceServiceImpl createDataSourceService() {
+    String masterKey = DataSourceSettings
+        .DATASOURCE_MASTER_SECRET_KEY.get(clusterService.getSettings());
+    DataSourceMetadataStorage dataSourceMetadataStorage
+        = new OpenSearchDataSourceMetadataStorage(client, clusterService,
+            new EncryptorImpl(masterKey));
+    DataSourceUserAuthorizationHelper dataSourceUserAuthorizationHelper
+        = new DataSourceUserAuthorizationHelperImpl(client);
+    return new DataSourceServiceImpl(
+        new ImmutableSet.Builder<DataSourceFactory>()
+            .add(new OpenSearchDataSourceFactory(
+                new OpenSearchNodeClient(this.client), pluginSettings))
+            .add(new PrometheusStorageFactory())
+            .build(),
+        dataSourceMetadataStorage,
+        dataSourceUserAuthorizationHelper);
   }
 
-  /**
-   * load {@link DataSource} from settings.
-   */
-  @VisibleForTesting
-  public static void loadDataSources(DataSourceService dataSourceService, Settings settings) {
-    SecurityAccess.doPrivileged(
-        () -> {
-          InputStream inputStream = DataSourceSettings.DATASOURCE_CONFIG.get(settings);
-          if (inputStream != null) {
-            ObjectMapper objectMapper = new ObjectMapper();
-            objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-            try {
-              List<DataSourceMetadata> metadataList =
-                  objectMapper.readValue(inputStream, new TypeReference<>() {});
-              dataSourceService.addDataSource(metadataList.toArray(new DataSourceMetadata[0]));
-            } catch (IOException e) {
-              LOG.error(
-                  "DataSource Configuration File uploaded is malformed. Verify and re-upload.", e);
-            } catch (Throwable e) {
-              LOG.error("DataSource construction failed.", e);
-            }
-          }
-          return null;
-        });
-  }
 }

@@ -12,26 +12,38 @@ import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableMap;
+import com.google.gson.Gson;
+import java.io.IOException;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
+import lombok.AllArgsConstructor;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import org.opensearch.sql.datasource.DataSourceService;
 
-@JsonIgnoreProperties(ignoreUnknown = true)
 @Getter
 @Setter
+@AllArgsConstructor
+@NoArgsConstructor
 @EqualsAndHashCode
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class DataSourceMetadata {
 
-  @JsonProperty(required = true)
+  @JsonProperty
   private String name;
 
-  @JsonProperty(required = true)
+  @JsonProperty
   @JsonFormat(with = JsonFormat.Feature.ACCEPT_CASE_INSENSITIVE_PROPERTIES)
   private DataSourceType connector;
 
-  @JsonProperty(required = true)
+  @JsonProperty
+  private List<String> allowedRoles;
+
+  @JsonProperty
   private Map<String, String> properties;
 
   /**
@@ -39,10 +51,7 @@ public class DataSourceMetadata {
    * {@link DataSource} to {@link DataSourceService}.
    */
   public static DataSourceMetadata defaultOpenSearchDataSourceMetadata() {
-    DataSourceMetadata dataSourceMetadata = new DataSourceMetadata();
-    dataSourceMetadata.setName(DEFAULT_DATASOURCE_NAME);
-    dataSourceMetadata.setConnector(DataSourceType.OPENSEARCH);
-    dataSourceMetadata.setProperties(ImmutableMap.of());
-    return dataSourceMetadata;
+    return new DataSourceMetadata(DEFAULT_DATASOURCE_NAME,
+        DataSourceType.OPENSEARCH, Collections.emptyList(), ImmutableMap.of());
   }
 }

@@ -22,7 +22,6 @@
  * under the License.
  */
 
-import org.gradle.nativeplatform.platform.internal.DefaultNativePlatform
 import org.opensearch.gradle.test.RestIntegTestTask
 import org.opensearch.gradle.testclusters.StandaloneRestIntegTestTask
 
@@ -61,7 +60,7 @@ loggerUsageCheck.enabled = false
 
 configurations.all {
     resolutionStrategy.force 'junit:junit:4.13.2'
-    exclude group: "commons-logging", module: "commons-logging"
+    resolutionStrategy.force "commons-logging:commons-logging:1.2"
     // enforce 1.1.3, https://www.whitesourcesoftware.com/vulnerability-database/WS-2019-0379
     resolutionStrategy.force 'commons-codec:commons-codec:1.13'
     resolutionStrategy.force 'com.google.guava:guava:31.0.1-jre'
@@ -153,9 +152,10 @@ stopPrometheus.mustRunAfter startPrometheus
 // Run PPL ITs and new, legacy and comparison SQL ITs with new SQL engine enabled
 integTest {
     dependsOn ':opensearch-sql-plugin:bundlePlugin'
-    dependsOn startPrometheus
-    finalizedBy stopPrometheus
-
+    if(getOSFamilyType() != "windows") {
+        dependsOn startPrometheus
+        finalizedBy stopPrometheus
+    }
     systemProperty 'tests.security.manager', 'false'
     systemProperty('project.root', project.projectDir.absolutePath)
 
@@ -178,6 +178,12 @@ integTest {
         filter {
             excludeTestsMatching "org.opensearch.sql.bwc.*IT"
         }
+    }
+
+    if(getOSFamilyType() == "windows") {
+        exclude 'org/opensearch/sql/ppl/PrometheusDataSourceCommandsIT.class'
+        exclude 'org/opensearch/sql/ppl/ShowDataSourcesCommandIT.class'
+        exclude 'org/opensearch/sql/ppl/InformationSchemaCommandIT.class'
     }
 
     exclude 'org/opensearch/sql/doctest/**/*IT.class'
