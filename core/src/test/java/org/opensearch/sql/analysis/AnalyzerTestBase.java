@@ -70,7 +70,7 @@ public class AnalyzerTestBase {
                   FunctionSignature unresolvedSignature) {
                 FunctionName functionName = FunctionName.of("query_range");
                 FunctionSignature functionSignature =
-                    new FunctionSignature(functionName, List.of(STRING, LONG, LONG, LONG));
+                    new FunctionSignature(functionName, List.of(STRING, LONG, LONG, STRING));
                 return Pair.of(
                     functionSignature,
                     (functionProperties, args) ->
@@ -111,6 +111,10 @@ public class AnalyzerTestBase {
       @Override
       public PhysicalPlan implement(LogicalPlan plan) {
         throw new UnsupportedOperationException();
+      }
+
+      public Map<String, ExprType> getReservedFieldTypes() {
+        return ImmutableMap.of("_test", STRING);
       }
     });
   }

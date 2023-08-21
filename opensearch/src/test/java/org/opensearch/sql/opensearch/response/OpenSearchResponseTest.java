@@ -12,11 +12,16 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 import com.google.common.collect.ImmutableMap;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.apache.lucene.search.TotalHits;
@@ -25,13 +30,18 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.opensearch.action.search.SearchResponse;
-import org.opensearch.common.bytes.BytesArray;
-import org.opensearch.common.text.Text;
+import org.opensearch.core.common.bytes.BytesArray;
+import org.opensearch.core.common.text.Text;
+import org.opensearch.core.index.shard.ShardId;
 import org.opensearch.search.SearchHit;
 import org.opensearch.search.SearchHits;
+import org.opensearch.search.SearchShardTarget;
 import org.opensearch.search.aggregations.Aggregations;
 import org.opensearch.search.fetch.subphase.highlight.HighlightField;
+import org.opensearch.sql.data.model.ExprFloatValue;
 import org.opensearch.sql.data.model.ExprIntegerValue;
+import org.opensearch.sql.data.model.ExprLongValue;
+import org.opensearch.sql.data.model.ExprStringValue;
 import org.opensearch.sql.data.model.ExprTupleValue;
 import org.opensearch.sql.data.model.ExprValue;
 import org.opensearch.sql.data.model.ExprValueUtils;
@@ -56,6 +66,8 @@ class OpenSearchResponseTest {
   @Mock
   private Aggregations aggregations;
 
+  private List<String> includes = List.of();
+
   @Mock
   private OpenSearchAggregationResponseParser parser;
 
@@ -74,20 +86,25 @@ class OpenSearchResponseTest {
                 new TotalHits(2L, TotalHits.Relation.EQUAL_TO),
                 1.0F));
 
-    assertFalse(new OpenSearchResponse(searchResponse, factory).isEmpty());
+    var response = new OpenSearchResponse(searchResponse, factory, includes);
+    assertFalse(response.isEmpty());
 
     when(searchResponse.getHits()).thenReturn(SearchHits.empty());
     when(searchResponse.getAggregations()).thenReturn(null);
-    assertTrue(new OpenSearchResponse(searchResponse, factory).isEmpty());
+
+    response = new OpenSearchResponse(searchResponse, factory, includes);
+    assertTrue(response.isEmpty());
 
     when(searchResponse.getHits())
         .thenReturn(new SearchHits(null, new TotalHits(0, TotalHits.Relation.EQUAL_TO), 0));
-    OpenSearchResponse response3 = new OpenSearchResponse(searchResponse, factory);
-    assertTrue(response3.isEmpty());
+    response = new OpenSearchResponse(searchResponse, factory, includes);
+    assertTrue(response.isEmpty());
 
     when(searchResponse.getHits()).thenReturn(SearchHits.empty());
     when(searchResponse.getAggregations()).thenReturn(new Aggregations(emptyList()));
-    assertFalse(new OpenSearchResponse(searchResponse, factory).isEmpty());
+
+    response = new OpenSearchResponse(searchResponse, factory, includes);
+    assertFalse(response.isEmpty());
   }
 
   @Test
@@ -101,14 +118,17 @@ class OpenSearchResponseTest {
 
     when(searchHit1.getSourceAsString()).thenReturn("{\"id1\", 1}");
     when(searchHit2.getSourceAsString()).thenReturn("{\"id1\", 2}");
-    when(factory.construct(any())).thenReturn(exprTupleValue1).thenReturn(exprTupleValue2);
+    when(searchHit1.getInnerHits()).thenReturn(null);
+    when(searchHit2.getInnerHits()).thenReturn(null);
+    when(factory.construct(any(), anyBoolean()))
+        .thenReturn(exprTupleValue1).thenReturn(exprTupleValue2);
 
     int i = 0;
-    for (ExprValue hit : new OpenSearchResponse(searchResponse, factory)) {
+    for (ExprValue hit : new OpenSearchResponse(searchResponse, factory, List.of("id1"))) {
       if (i == 0) {
-        assertEquals(exprTupleValue1, hit);
+        assertEquals(exprTupleValue1.tupleValue().get("id"), hit.tupleValue().get("id"));
       } else if (i == 1) {
-        assertEquals(exprTupleValue2, hit);
+        assertEquals(exprTupleValue2.tupleValue().get("id"), hit.tupleValue().get("id"));
       } else {
         fail("More search hits returned than expected");
       }
@@ -117,10 +137,153 @@ class OpenSearchResponseTest {
   }
 
   @Test
+  void iterator_metafields() {
+
+    ExprTupleValue exprTupleHit = ExprTupleValue.fromExprValueMap(ImmutableMap.of(
+        "id1", new ExprIntegerValue(1)
+    ));
+
+    when(searchResponse.getHits())
+        .thenReturn(
+            new SearchHits(
+                new SearchHit[] {searchHit1},
+                new TotalHits(1L, TotalHits.Relation.EQUAL_TO),
+                3.75F));
+
+    ShardId shardId = new ShardId("index", "indexUUID", 42);
+    SearchShardTarget shardTarget = new SearchShardTarget("node", shardId, null, null);
+
+    when(searchHit1.getSourceAsString()).thenReturn("{\"id1\", 1}");
+    when(searchHit1.getId()).thenReturn("testId");
+    when(searchHit1.getIndex()).thenReturn("testIndex");
+    when(searchHit1.getShard()).thenReturn(shardTarget);
+    when(searchHit1.getScore()).thenReturn(3.75F);
+    when(searchHit1.getSeqNo()).thenReturn(123456L);
+
+    when(factory.construct(any(), anyBoolean())).thenReturn(exprTupleHit);
+
+    ExprTupleValue exprTupleResponse = ExprTupleValue.fromExprValueMap(ImmutableMap.of(
+        "id1", new ExprIntegerValue(1),
+        "_index", new ExprStringValue("testIndex"),
+        "_id", new ExprStringValue("testId"),
+        "_routing", new ExprStringValue(shardTarget.toString()),
+        "_sort", new ExprLongValue(123456L),
+        "_score", new ExprFloatValue(3.75F),
+        "_maxscore", new ExprFloatValue(3.75F)
+    ));
+    List includes = List.of("id1", "_index", "_id", "_routing", "_sort", "_score", "_maxscore");
+    int i = 0;
+    for (ExprValue hit : new OpenSearchResponse(searchResponse, factory, includes)) {
+      if (i == 0) {
+        assertEquals(exprTupleResponse, hit);
+      } else {
+        fail("More search hits returned than expected");
+      }
+      i++;
+    }
+  }
+
+  @Test
+  void iterator_metafields_withoutIncludes() {
+
+    ExprTupleValue exprTupleHit = ExprTupleValue.fromExprValueMap(ImmutableMap.of(
+        "id1", new ExprIntegerValue(1)
+    ));
+
+    when(searchResponse.getHits())
+        .thenReturn(
+            new SearchHits(
+                new SearchHit[] {searchHit1},
+                new TotalHits(1L, TotalHits.Relation.EQUAL_TO),
+                3.75F));
+
+    when(searchHit1.getSourceAsString()).thenReturn("{\"id1\", 1}");
+
+    when(factory.construct(any(), anyBoolean())).thenReturn(exprTupleHit);
+
+    List includes = List.of("id1");
+    ExprTupleValue exprTupleResponse = ExprTupleValue.fromExprValueMap(ImmutableMap.of(
+        "id1", new ExprIntegerValue(1)
+    ));
+    int i = 0;
+    for (ExprValue hit : new OpenSearchResponse(searchResponse, factory, includes)) {
+      if (i == 0) {
+        assertEquals(exprTupleResponse, hit);
+      } else {
+        fail("More search hits returned than expected");
+      }
+      i++;
+    }
+  }
+
+  @Test
+  void iterator_metafields_scoreNaN() {
+
+    ExprTupleValue exprTupleHit = ExprTupleValue.fromExprValueMap(ImmutableMap.of(
+        "id1", new ExprIntegerValue(1)
+    ));
+
+    when(searchResponse.getHits())
+        .thenReturn(
+            new SearchHits(
+                new SearchHit[] {searchHit1},
+                new TotalHits(1L, TotalHits.Relation.EQUAL_TO),
+                Float.NaN));
+
+    when(searchHit1.getSourceAsString()).thenReturn("{\"id1\", 1}");
+    when(searchHit1.getId()).thenReturn("testId");
+    when(searchHit1.getIndex()).thenReturn("testIndex");
+    when(searchHit1.getScore()).thenReturn(Float.NaN);
+    when(searchHit1.getSeqNo()).thenReturn(123456L);
+
+    when(factory.construct(any(), anyBoolean())).thenReturn(exprTupleHit);
+
+    List includes = List.of("id1", "_index", "_id", "_sort", "_score", "_maxscore");
+    ExprTupleValue exprTupleResponse = ExprTupleValue.fromExprValueMap(ImmutableMap.of(
+        "id1", new ExprIntegerValue(1),
+        "_index", new ExprStringValue("testIndex"),
+        "_id", new ExprStringValue("testId"),
+        "_sort", new ExprLongValue(123456L)
+    ));
+    int i = 0;
+    for (ExprValue hit : new OpenSearchResponse(searchResponse, factory, includes)) {
+      if (i == 0) {
+        assertEquals(exprTupleResponse, hit);
+      } else {
+        fail("More search hits returned than expected");
+      }
+      i++;
+    }
+  }
+
+  @Test
+  void iterator_with_inner_hits() {
+    when(searchResponse.getHits())
+        .thenReturn(
+            new SearchHits(
+                new SearchHit[] {searchHit1},
+                new TotalHits(2L, TotalHits.Relation.EQUAL_TO),
+                1.0F));
+    when(searchHit1.getInnerHits()).thenReturn(
+        Map.of(
+            "innerHit",
+            new SearchHits(
+                new SearchHit[] {searchHit1},
+                new TotalHits(2L, TotalHits.Relation.EQUAL_TO),
+                1.0F)));
+
+    when(factory.construct(any(), anyBoolean())).thenReturn(exprTupleValue1);
+
+    for (ExprValue hit : new OpenSearchResponse(searchResponse, factory, includes)) {
+      assertEquals(exprTupleValue1, hit);
+    }
+  }
+
+  @Test
   void response_is_aggregation_when_aggregation_not_empty() {
     when(searchResponse.getAggregations()).thenReturn(aggregations);
 
-    OpenSearchResponse response = new OpenSearchResponse(searchResponse, factory);
+    OpenSearchResponse response = new OpenSearchResponse(searchResponse, factory, includes);
     assertTrue(response.isAggregationResponse());
   }
 
@@ -128,22 +291,24 @@ class OpenSearchResponseTest {
   void response_isnot_aggregation_when_aggregation_is_empty() {
     when(searchResponse.getAggregations()).thenReturn(null);
 
-    OpenSearchResponse response = new OpenSearchResponse(searchResponse, factory);
+    OpenSearchResponse response = new OpenSearchResponse(searchResponse, factory, includes);
     assertFalse(response.isAggregationResponse());
   }
 
   @Test
   void aggregation_iterator() {
+    final List includes = List.of("id1", "id2");
+
     when(parser.parse(any()))
         .thenReturn(Arrays.asList(ImmutableMap.of("id1", 1), ImmutableMap.of("id2", 2)));
     when(searchResponse.getAggregations()).thenReturn(aggregations);
     when(factory.getParser()).thenReturn(parser);
-    when(factory.construct(anyString(), any()))
+    when(factory.construct(anyString(), anyInt(), anyBoolean()))
         .thenReturn(new ExprIntegerValue(1))
         .thenReturn(new ExprIntegerValue(2));
 
     int i = 0;
-    for (ExprValue hit : new OpenSearchResponse(searchResponse, factory)) {
+    for (ExprValue hit : new OpenSearchResponse(searchResponse, factory, includes)) {
       if (i == 0) {
         assertEquals(exprTupleValue1, hit);
       } else if (i == 1) {
@@ -174,9 +339,9 @@ class OpenSearchResponseTest {
                 1.0F));
 
     when(searchHit1.getHighlightFields()).thenReturn(highlightMap);
-    when(factory.construct(any())).thenReturn(resultTuple);
+    when(factory.construct(any(), anyBoolean())).thenReturn(resultTuple);
 
-    for (ExprValue resultHit : new OpenSearchResponse(searchResponse, factory)) {
+    for (ExprValue resultHit : new OpenSearchResponse(searchResponse, factory, includes)) {
       var expected = ExprValueUtils.collectionValue(
           Arrays.stream(searchHit.getHighlightFields().get("highlights").getFragments())
               .map(t -> (t.toString())).collect(Collectors.toList()));

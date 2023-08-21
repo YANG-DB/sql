@@ -25,10 +25,12 @@ import org.opensearch.sql.ast.expression.Interval;
 import org.opensearch.sql.ast.expression.Let;
 import org.opensearch.sql.ast.expression.Literal;
 import org.opensearch.sql.ast.expression.Map;
+import org.opensearch.sql.ast.expression.NestedAllTupleFields;
 import org.opensearch.sql.ast.expression.Not;
 import org.opensearch.sql.ast.expression.Or;
 import org.opensearch.sql.ast.expression.QualifiedName;
 import org.opensearch.sql.ast.expression.RelevanceFieldList;
+import org.opensearch.sql.ast.expression.ScoreFunction;
 import org.opensearch.sql.ast.expression.Span;
 import org.opensearch.sql.ast.expression.UnresolvedArgument;
 import org.opensearch.sql.ast.expression.UnresolvedAttribute;
@@ -40,13 +42,16 @@ import org.opensearch.sql.ast.statement.Query;
 import org.opensearch.sql.ast.statement.Statement;
 import org.opensearch.sql.ast.tree.AD;
 import org.opensearch.sql.ast.tree.Aggregation;
+import org.opensearch.sql.ast.tree.CloseCursor;
 import org.opensearch.sql.ast.tree.Dedupe;
 import org.opensearch.sql.ast.tree.Eval;
+import org.opensearch.sql.ast.tree.FetchCursor;
 import org.opensearch.sql.ast.tree.Filter;
 import org.opensearch.sql.ast.tree.Head;
 import org.opensearch.sql.ast.tree.Kmeans;
 import org.opensearch.sql.ast.tree.Limit;
 import org.opensearch.sql.ast.tree.ML;
+import org.opensearch.sql.ast.tree.Paginate;
 import org.opensearch.sql.ast.tree.Parse;
 import org.opensearch.sql.ast.tree.Project;
 import org.opensearch.sql.ast.tree.RareTopN;
@@ -234,6 +239,10 @@ public abstract class AbstractNodeVisitor<T, C> {
     return visitChildren(node, context);
   }
 
+  public T visitNestedAllTupleFields(NestedAllTupleFields node, C context) {
+    return visitChildren(node, context);
+  }
+
   public T visitInterval(Interval node, C context) {
     return visitChildren(node, context);
   }
@@ -278,6 +287,10 @@ public abstract class AbstractNodeVisitor<T, C> {
     return visitChildren(node, context);
   }
 
+  public T visitScoreFunction(ScoreFunction node, C context) {
+    return visitChildren(node, context);
+  }
+
   public T visitStatement(Statement node, C context) {
     return visit(node, context);
   }
@@ -288,5 +301,17 @@ public abstract class AbstractNodeVisitor<T, C> {
 
   public T visitExplain(Explain node, C context) {
     return visitStatement(node, context);
+  }
+
+  public T visitPaginate(Paginate paginate, C context) {
+    return visitChildren(paginate, context);
+  }
+
+  public T visitFetchCursor(FetchCursor cursor, C context) {
+    return visitChildren(cursor, context);
+  }
+
+  public T visitCloseCursor(CloseCursor closeCursor, C context) {
+    return visitChildren(closeCursor, context);
   }
 }

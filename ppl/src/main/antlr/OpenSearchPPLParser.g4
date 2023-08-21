@@ -33,8 +33,22 @@ pplCommands
     ;
 
 commands
-    : whereCommand | fieldsCommand | renameCommand | statsCommand | dedupCommand | sortCommand | evalCommand | headCommand
-    | topCommand | rareCommand | grokCommand | parseCommand | patternsCommand | kmeansCommand | adCommand | mlCommand;
+    : whereCommand
+    | fieldsCommand
+    | renameCommand
+    | statsCommand
+    | dedupCommand
+    | sortCommand
+    | evalCommand
+    | headCommand
+    | topCommand
+    | rareCommand
+    | grokCommand
+    | parseCommand
+    | patternsCommand
+    | kmeansCommand
+    | adCommand
+    | mlCommand;
 
 searchCommand
     : (SEARCH)? fromClause                                          #searchFrom
@@ -169,7 +183,10 @@ mlArg
 fromClause
     : SOURCE EQUAL tableSourceClause
     | INDEX EQUAL tableSourceClause
+    | SOURCE EQUAL tableFunction
+    | INDEX EQUAL tableFunction
     ;
+
 
 tableSourceClause
     : tableSource (COMMA tableSource)*
@@ -220,7 +237,15 @@ statsFunction
     ;
 
 statsFunctionName
-    : AVG | COUNT | SUM | MIN | MAX | VAR_SAMP | VAR_POP | STDDEV_SAMP | STDDEV_POP
+    : AVG
+    | COUNT
+    | SUM
+    | MIN
+    | MAX
+    | VAR_SAMP
+    | VAR_POP
+    | STDDEV_SAMP
+    | STDDEV_POP
     ;
 
 takeAggFunction
@@ -262,6 +287,9 @@ valueExpression
             right=valueExpression                                   #binaryArithmetic
     | primaryExpression                                             #valueExpressionDefault
     | positionFunction                                              #positionFunctionCall
+    | extractFunction                                               #extractFunctionCall
+    | getFormatFunction                                             #getFormatFunctionCall
+    | timestampFunction                                             #timestampFunctionCall
     | LT_PRTHS valueExpression RT_PRTHS                             #parentheticValueExpr
     ;
 
@@ -300,7 +328,7 @@ multiFieldRelevanceFunction
 
 /** tables */
 tableSource
-    : qualifiedName
+    : tableQualifiedName
     | ID_DATE_SUFFIX
     ;
 
@@ -366,11 +394,11 @@ convertedDataType
     ;
 
 evalFunctionName
-    : mathematicalFunctionBase
-    | dateAndTimeFunctionBase
-    | textFunctionBase
+    : mathematicalFunctionName
+    | dateTimeFunctionName
+    | textFunctionName
     | conditionFunctionBase
-    | systemFunctionBase
+    | systemFunctionName
     | positionFunctionName
     ;
 
@@ -387,12 +415,38 @@ relevanceArg
     ;
 
 relevanceArgName
-    : ALLOW_LEADING_WILDCARD | ANALYZER | ANALYZE_WILDCARD | AUTO_GENERATE_SYNONYMS_PHRASE_QUERY
-    | BOOST | CUTOFF_FREQUENCY | DEFAULT_FIELD | DEFAULT_OPERATOR | ENABLE_POSITION_INCREMENTS
-    | ESCAPE | FIELDS | FLAGS | FUZZINESS | FUZZY_MAX_EXPANSIONS | FUZZY_PREFIX_LENGTH
-    | FUZZY_REWRITE | FUZZY_TRANSPOSITIONS | LENIENT | LOW_FREQ_OPERATOR | MAX_DETERMINIZED_STATES
-    | MAX_EXPANSIONS | MINIMUM_SHOULD_MATCH | OPERATOR | PHRASE_SLOP | PREFIX_LENGTH
-    | QUOTE_ANALYZER | QUOTE_FIELD_SUFFIX | REWRITE | SLOP | TIE_BREAKER | TIME_ZONE | TYPE
+    : ALLOW_LEADING_WILDCARD
+    | ANALYZER
+    | ANALYZE_WILDCARD
+    | AUTO_GENERATE_SYNONYMS_PHRASE_QUERY
+    | BOOST
+    | CUTOFF_FREQUENCY
+    | DEFAULT_FIELD
+    | DEFAULT_OPERATOR
+    | ENABLE_POSITION_INCREMENTS
+    | ESCAPE
+    | FIELDS
+    | FLAGS
+    | FUZZINESS
+    | FUZZY_MAX_EXPANSIONS
+    | FUZZY_PREFIX_LENGTH
+    | FUZZY_REWRITE
+    | FUZZY_TRANSPOSITIONS
+    | LENIENT
+    | LOW_FREQ_OPERATOR
+    | MAX_DETERMINIZED_STATES
+    | MAX_EXPANSIONS
+    | MINIMUM_SHOULD_MATCH
+    | OPERATOR
+    | PHRASE_SLOP
+    | PREFIX_LENGTH
+    | QUOTE_ANALYZER
+    | QUOTE_FIELD_SUFFIX
+    | REWRITE
+    | SLOP
+    | TIE_BREAKER
+    | TIME_ZONE
+    | TYPE
     | ZERO_TERMS_QUERY
     ;
 
@@ -421,81 +475,200 @@ relevanceArgValue
     | literalValue
     ;
 
-mathematicalFunctionBase
-    : ABS | CBRT | CEIL | CEILING | CONV | CRC32 | E | EXP | FLOOR | LN | LOG | LOG10 | LOG2 | MOD | PI |POW | POWER
-    | RAND | ROUND | SIGN | SQRT | TRUNCATE
+mathematicalFunctionName
+    : ABS
+    | CBRT
+    | CEIL
+    | CEILING
+    | CONV
+    | CRC32
+    | E
+    | EXP
+    | FLOOR
+    | LN
+    | LOG
+    | LOG10
+    | LOG2
+    | MOD
+    | PI
+    | POW
+    | POWER
+    | RAND
+    | ROUND
+    | SIGN
+    | SQRT
+    | TRUNCATE
     | trigonometricFunctionName
     ;
 
 trigonometricFunctionName
-    : ACOS | ASIN | ATAN | ATAN2 | COS | COT | DEGREES | RADIANS | SIN | TAN
+    : ACOS
+    | ASIN
+    | ATAN
+    | ATAN2
+    | COS
+    | COT
+    | DEGREES
+    | RADIANS
+    | SIN
+    | TAN
     ;
 
-dateAndTimeFunctionBase
+dateTimeFunctionName
     : ADDDATE
     | ADDTIME
     | CONVERT_TZ
+    | CURDATE
     | CURRENT_DATE
     | CURRENT_TIME
     | CURRENT_TIMESTAMP
+    | CURTIME
     | DATE
+    | DATEDIFF
+    | DATETIME
     | DATE_ADD
     | DATE_FORMAT
     | DATE_SUB
-    | DATEDIFF
-    | DATETIME
     | DAY
     | DAYNAME
     | DAYOFMONTH
     | DAYOFWEEK
     | DAYOFYEAR
-    | CURDATE
-    | CURTIME
+    | DAY_OF_MONTH
+    | DAY_OF_WEEK
+    | DAY_OF_YEAR
     | FROM_DAYS
     | FROM_UNIXTIME
     | HOUR
+    | HOUR_OF_DAY
+    | LAST_DAY
     | LOCALTIME
     | LOCALTIMESTAMP
     | MAKEDATE
     | MAKETIME
     | MICROSECOND
     | MINUTE
+    | MINUTE_OF_DAY
+    | MINUTE_OF_HOUR
     | MONTH
     | MONTHNAME
+    | MONTH_OF_YEAR
     | NOW
     | PERIOD_ADD
     | PERIOD_DIFF
     | QUARTER
     | SECOND
+    | SECOND_OF_MINUTE
+    | SEC_TO_TIME
+    | STR_TO_DATE
     | SUBDATE
     | SUBTIME
     | SYSDATE
     | TIME
-    | TIME_TO_SEC
     | TIMEDIFF
     | TIMESTAMP
+    | TIME_FORMAT
+    | TIME_TO_SEC
     | TO_DAYS
+    | TO_SECONDS
     | UNIX_TIMESTAMP
     | UTC_DATE
     | UTC_TIME
     | UTC_TIMESTAMP
     | WEEK
+    | WEEKDAY
+    | WEEK_OF_YEAR
     | YEAR
+    | YEARWEEK
+    ;
+
+getFormatFunction
+    : GET_FORMAT LT_PRTHS getFormatType COMMA functionArg RT_PRTHS
+    ;
+
+getFormatType
+    : DATE
+    | DATETIME
+    | TIME
+    | TIMESTAMP
+    ;
+
+extractFunction
+    : EXTRACT LT_PRTHS datetimePart FROM functionArg RT_PRTHS
+    ;
+
+simpleDateTimePart
+    : MICROSECOND
+    | SECOND
+    | MINUTE
+    | HOUR
+    | DAY
+    | WEEK
+    | MONTH
+    | QUARTER
+    | YEAR
+    ;
+
+complexDateTimePart
+    : SECOND_MICROSECOND
+    | MINUTE_MICROSECOND
+    | MINUTE_SECOND
+    | HOUR_MICROSECOND
+    | HOUR_SECOND
+    | HOUR_MINUTE
+    | DAY_MICROSECOND
+    | DAY_SECOND
+    | DAY_MINUTE
+    | DAY_HOUR
+    | YEAR_MONTH
+    ;
+
+datetimePart
+    : simpleDateTimePart
+    | complexDateTimePart
+    ;
+
+timestampFunction
+    : timestampFunctionName LT_PRTHS simpleDateTimePart COMMA firstArg=functionArg COMMA secondArg=functionArg RT_PRTHS
+    ;
+
+timestampFunctionName
+    : TIMESTAMPADD
+    | TIMESTAMPDIFF
     ;
 
 /** condition function return boolean value */
 conditionFunctionBase
     : LIKE
-    | IF | ISNULL | ISNOTNULL | IFNULL | NULLIF
+    | IF
+    | ISNULL
+    | ISNOTNULL
+    | IFNULL
+    | NULLIF
     ;
 
-systemFunctionBase
+systemFunctionName
     : TYPEOF
     ;
 
-textFunctionBase
-    : SUBSTR | SUBSTRING | TRIM | LTRIM | RTRIM | LOWER | UPPER | CONCAT | CONCAT_WS | LENGTH | STRCMP
-    | RIGHT | LEFT | ASCII | LOCATE | REPLACE | REVERSE
+textFunctionName
+    : SUBSTR
+    | SUBSTRING
+    | TRIM
+    | LTRIM
+    | RTRIM
+    | LOWER
+    | UPPER
+    | CONCAT
+    | CONCAT_WS
+    | LENGTH
+    | STRCMP
+    | RIGHT
+    | LEFT
+    | ASCII
+    | LOCATE
+    | REPLACE
+    | REVERSE
     ;
 
 positionFunctionName
@@ -504,9 +677,14 @@ positionFunctionName
 
 /** operators */
 comparisonOperator
-    : EQUAL | NOT_EQUAL | LESS | NOT_LESS | GREATER | NOT_GREATER | REGEXP
+    : EQUAL
+    | NOT_EQUAL
+    | LESS
+    | NOT_LESS
+    | GREATER
+    | NOT_GREATER
+    | REGEXP
     ;
-
 
 singleFieldRelevanceFunctionName
     : MATCH
@@ -571,14 +749,46 @@ timestampLiteral
     ;
 
 intervalUnit
-    : MICROSECOND | SECOND | MINUTE | HOUR | DAY | WEEK | MONTH | QUARTER | YEAR | SECOND_MICROSECOND
-    | MINUTE_MICROSECOND | MINUTE_SECOND | HOUR_MICROSECOND | HOUR_SECOND | HOUR_MINUTE | DAY_MICROSECOND
-    | DAY_SECOND | DAY_MINUTE | DAY_HOUR | YEAR_MONTH
+    : MICROSECOND
+    | SECOND
+    | MINUTE
+    | HOUR
+    | DAY
+    | WEEK
+    | MONTH
+    | QUARTER
+    | YEAR
+    | SECOND_MICROSECOND
+    | MINUTE_MICROSECOND
+    | MINUTE_SECOND
+    | HOUR_MICROSECOND
+    | HOUR_SECOND
+    | HOUR_MINUTE
+    | DAY_MICROSECOND
+    | DAY_SECOND
+    | DAY_MINUTE
+    | DAY_HOUR
+    | YEAR_MONTH
     ;
 
 timespanUnit
-    : MS | S | M | H | D | W | Q | Y
-    | MILLISECOND | SECOND | MINUTE | HOUR | DAY | WEEK | MONTH | QUARTER | YEAR
+    : MS
+    | S
+    | M
+    | H
+    | D
+    | W
+    | Q
+    | Y
+    | MILLISECOND
+    | SECOND
+    | MINUTE
+    | HOUR
+    | DAY
+    | WEEK
+    | MONTH
+    | QUARTER
+    | YEAR
     ;
 
 
@@ -590,6 +800,10 @@ qualifiedName
     : ident (DOT ident)*                             #identsAsQualifiedName
     ;
 
+tableQualifiedName
+    : tableIdent (DOT ident)*                        #identsAsTableQualifiedName
+    ;
+
 wcQualifiedName
     : wildcard (DOT wildcard)*                       #identsAsWildcardQualifiedName
     ;
@@ -599,6 +813,10 @@ ident
     | BACKTICK ident BACKTICK
     | BQUOTA_STRING
     | keywordsCanBeId
+    ;
+
+tableIdent
+    : (CLUSTER)? ident
     ;
 
 wildcard
@@ -614,6 +832,10 @@ keywordsCanBeId
     | evalFunctionName
     | relevanceArgName
     | intervalUnit
+    | dateTimeFunctionName
+    | textFunctionName
+    | mathematicalFunctionName
+    | positionFunctionName
     // commands
     | SEARCH | DESCRIBE | SHOW | FROM | WHERE | FIELDS | RENAME | STATS | DEDUP | SORT | EVAL | HEAD | TOP | RARE
     | PARSE | METHOD | REGEX | PUNCT | GROK | PATTERN | PATTERNS | NEW_FIELD | KMEANS | AD | ML

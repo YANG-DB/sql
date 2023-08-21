@@ -53,6 +53,9 @@ public class PrettyFormatResponseIT extends SQLIntegTestCase {
   private static final Set<String> messageFields = Sets.newHashSet(
       "message.dayOfWeek", "message.info", "message.author");
 
+  private static final Set<String> messageFieldsWithNestedFunction = Sets.newHashSet(
+      "nested(message.dayOfWeek)", "nested(message.info)", "nested(message.author)");
+
   private static final Set<String> commentFields = Sets.newHashSet("comment.data", "comment.likes");
 
   private static final List<String> nameFields = Arrays.asList("firstname", "lastname");
@@ -126,10 +129,11 @@ public class PrettyFormatResponseIT extends SQLIntegTestCase {
   }
 
   @Test
+  @Ignore("_score tested in V2 engine - @see org.opensearch.sql.sql.ScoreQueryIT")
   public void selectScore() throws IOException {
     JSONObject response = executeQuery(
-        String.format(Locale.ROOT, "SELECT _score FROM %s WHERE balance > 30000",
-            TestsConstants.TEST_INDEX_ACCOUNT));
+        String.format(Locale.ROOT, "SELECT _score FROM %s WHERE SCORE(match_phrase(phrase, 'brown fox'))",
+            TestsConstants.TEST_INDEX_PHRASE));
 
     List<String> fields = Collections.singletonList("_score");
     assertContainsColumns(getSchema(response), fields);
@@ -195,7 +199,7 @@ public class PrettyFormatResponseIT extends SQLIntegTestCase {
         String.format(Locale.ROOT, "SELECT nested(message.info), someField FROM %s",
             TestsConstants.TEST_INDEX_NESTED_TYPE));
 
-    List<String> fields = Arrays.asList("message.info", "someField");
+    List<String> fields = Arrays.asList("nested(message.info)", "someField");
     assertContainsColumns(getSchema(response), fields);
     assertContainsData(getDataRows(response), fields);
 
@@ -210,7 +214,7 @@ public class PrettyFormatResponseIT extends SQLIntegTestCase {
         String.format(Locale.ROOT, "SELECT nested(message.*) FROM %s",
             TestsConstants.TEST_INDEX_NESTED_TYPE));
 
-    assertContainsColumnsInAnyOrder(getSchema(response), messageFields);
+    assertContainsColumnsInAnyOrder(getSchema(response), messageFieldsWithNestedFunction);
     assertContainsData(getDataRows(response), messageFields);
   }
 

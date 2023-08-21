@@ -6,6 +6,7 @@
 
 package org.opensearch.sql.analysis;
 
+import static org.opensearch.sql.analysis.DataSourceSchemaIdentifierNameResolver.DEFAULT_DATASOURCE_NAME;
 import static org.opensearch.sql.ast.tree.Sort.NullOrder.NULL_FIRST;
 import static org.opensearch.sql.ast.tree.Sort.NullOrder.NULL_LAST;
 import static org.opensearch.sql.ast.tree.Sort.SortOrder.ASC;
@@ -28,6 +29,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import org.apache.commons.lang3.tuple.ImmutablePair;
 import org.apache.commons.lang3.tuple.Pair;
+import org.apache.commons.math3.analysis.function.Exp;
 import org.opensearch.sql.DataSourceSchemaName;
 import org.opensearch.sql.analysis.symbol.Namespace;
 import org.opensearch.sql.analysis.symbol.Symbol;
@@ -42,13 +44,16 @@ import org.opensearch.sql.ast.expression.QualifiedName;
 import org.opensearch.sql.ast.expression.UnresolvedExpression;
 import org.opensearch.sql.ast.tree.AD;
 import org.opensearch.sql.ast.tree.Aggregation;
+import org.opensearch.sql.ast.tree.CloseCursor;
 import org.opensearch.sql.ast.tree.Dedupe;
 import org.opensearch.sql.ast.tree.Eval;
+import org.opensearch.sql.ast.tree.FetchCursor;
 import org.opensearch.sql.ast.tree.Filter;
 import org.opensearch.sql.ast.tree.Head;
 import org.opensearch.sql.ast.tree.Kmeans;
 import org.opensearch.sql.ast.tree.Limit;
 import org.opensearch.sql.ast.tree.ML;
+import org.opensearch.sql.ast.tree.Paginate;
 import org.opensearch.sql.ast.tree.Parse;
 import org.opensearch.sql.ast.tree.Project;
 import org.opensearch.sql.ast.tree.RareTopN;
@@ -60,29 +65,35 @@ import org.opensearch.sql.ast.tree.Sort.SortOption;
 import org.opensearch.sql.ast.tree.TableFunction;
 import org.opensearch.sql.ast.tree.UnresolvedPlan;
 import org.opensearch.sql.ast.tree.Values;
+import org.opensearch.sql.common.antlr.SyntaxCheckException;
 import org.opensearch.sql.data.model.ExprMissingValue;
 import org.opensearch.sql.data.type.ExprCoreType;
 import org.opensearch.sql.datasource.DataSourceService;
 import org.opensearch.sql.exception.SemanticCheckException;
 import org.opensearch.sql.expression.DSL;
 import org.opensearch.sql.expression.Expression;
+import org.opensearch.sql.expression.FunctionExpression;
 import org.opensearch.sql.expression.LiteralExpression;
 import org.opensearch.sql.expression.NamedExpression;
 import org.opensearch.sql.expression.ReferenceExpression;
 import org.opensearch.sql.expression.aggregation.Aggregator;
 import org.opensearch.sql.expression.aggregation.NamedAggregator;
+import org.opensearch.sql.expression.function.BuiltinFunctionName;
 import org.opensearch.sql.expression.function.BuiltinFunctionRepository;
 import org.opensearch.sql.expression.function.FunctionName;
 import org.opensearch.sql.expression.function.TableFunctionImplementation;
 import org.opensearch.sql.expression.parse.ParseExpression;
 import org.opensearch.sql.planner.logical.LogicalAD;
 import org.opensearch.sql.planner.logical.LogicalAggregation;
+import org.opensearch.sql.planner.logical.LogicalCloseCursor;
 import org.opensearch.sql.planner.logical.LogicalDedupe;
 import org.opensearch.sql.planner.logical.LogicalEval;
+import org.opensearch.sql.planner.logical.LogicalFetchCursor;
 import org.opensearch.sql.planner.logical.LogicalFilter;
 import org.opensearch.sql.planner.logical.LogicalLimit;
 import org.opensearch.sql.planner.logical.LogicalML;
 import org.opensearch.sql.planner.logical.LogicalMLCommons;
+import org.opensearch.sql.planner.logical.LogicalPaginate;
 import org.opensearch.sql.planner.logical.LogicalPlan;
 import org.opensearch.sql.planner.logical.LogicalProject;
 import org.opensearch.sql.planner.logical.LogicalRareTopN;
@@ -150,6 +161,9 @@ public class Analyzer extends AbstractNodeVisitor<LogicalPlan, AnalysisContext> 
               dataSourceSchemaIdentifierNameResolver.getIdentifierName());
     }
     table.getFieldTypes().forEach((k, v) -> curEnv.define(new Symbol(Namespace.FIELD_NAME, k), v));
+    table
+        .getReservedFieldTypes()
+        .forEach((k, v) -> curEnv.define(new Symbol(Namespace.HIDDEN_FIELD_NAME, k), v));
 
     // Put index name or its alias in index namespace on type environment so qualifier
     // can be removed when analyzing qualified name. The value (expr type) here doesn't matter.
@@ -193,12 +207,17 @@ public class Analyzer extends AbstractNodeVisitor<LogicalPlan, AnalysisContext> 
     TypeEnvironment curEnv = context.peek();
     Table table = tableFunctionImplementation.applyArguments();
     table.getFieldTypes().forEach((k, v) -> curEnv.define(new Symbol(Namespace.FIELD_NAME, k), v));
-    curEnv.define(new Symbol(Namespace.INDEX_NAME,
-            dataSourceSchemaIdentifierNameResolver.getIdentifierName()), STRUCT);
-    return new LogicalRelation(dataSourceSchemaIdentifierNameResolver.getIdentifierName(),
+    table
+        .getReservedFieldTypes()
+        .forEach((k, v) -> curEnv.define(new Symbol(Namespace.HIDDEN_FIELD_NAME, k), v));
+    curEnv.define(
+        new Symbol(
+            Namespace.INDEX_NAME, dataSourceSchemaIdentifierNameResolver.getIdentifierName()),
+        STRUCT);
+    return new LogicalRelation(
+        dataSourceSchemaIdentifierNameResolver.getIdentifierName(),
         tableFunctionImplementation.applyArguments());
   }
-
 
   @Override
   public LogicalPlan visitLimit(Limit node, AnalysisContext context) {
@@ -215,6 +234,28 @@ public class Analyzer extends AbstractNodeVisitor<LogicalPlan, AnalysisContext> 
         new ExpressionReferenceOptimizer(expressionAnalyzer.getRepository(), child);
     Expression optimized = optimizer.optimize(condition, context);
     return new LogicalFilter(child, optimized);
+  }
+
+  /**
+   * Ensure NESTED function is not used in GROUP BY, and HAVING clauses.
+   * Fallback to legacy engine. Can remove when support is added for NESTED function in WHERE,
+   * GROUP BY, ORDER BY, and HAVING clauses.
+   * @param condition : Filter condition
+   */
+  private void verifySupportsCondition(Expression condition) {
+    if (condition instanceof FunctionExpression) {
+      if (((FunctionExpression) condition).getFunctionName().getFunctionName().equalsIgnoreCase(
+          BuiltinFunctionName.NESTED.name()
+      )) {
+        throw new SyntaxCheckException(
+            "Falling back to legacy engine. Nested function is not supported in WHERE,"
+                + " GROUP BY, and HAVING clauses."
+        );
+      }
+      ((FunctionExpression)condition).getArguments().stream()
+          .forEach(e -> verifySupportsCondition(e)
+      );
+    }
   }
 
   /**
@@ -266,7 +307,9 @@ public class Analyzer extends AbstractNodeVisitor<LogicalPlan, AnalysisContext> 
     }
 
     for (UnresolvedExpression expr : node.getGroupExprList()) {
-      groupbyBuilder.add(namedExpressionAnalyzer.analyze(expr, context));
+      NamedExpression resolvedExpr = namedExpressionAnalyzer.analyze(expr, context);
+      verifySupportsCondition(resolvedExpr.getDelegated());
+      groupbyBuilder.add(resolvedExpr);
     }
     ImmutableList<NamedExpression> groupBys = groupbyBuilder.build();
 
@@ -359,6 +402,14 @@ public class Analyzer extends AbstractNodeVisitor<LogicalPlan, AnalysisContext> 
     List<NamedExpression> namedExpressions =
         selectExpressionAnalyzer.analyze(node.getProjectList(), context,
             new ExpressionReferenceOptimizer(expressionAnalyzer.getRepository(), child));
+
+    for (UnresolvedExpression expr : node.getProjectList()) {
+      NestedAnalyzer nestedAnalyzer = new NestedAnalyzer(
+          namedExpressions, expressionAnalyzer, child
+      );
+      child = nestedAnalyzer.analyze(expr, context);
+    }
+
     // new context
     context.push();
     TypeEnvironment newEnv = context.peek();
@@ -422,8 +473,13 @@ public class Analyzer extends AbstractNodeVisitor<LogicalPlan, AnalysisContext> 
         node.getSortList().stream()
             .map(
                 sortField -> {
-                  Expression expression = optimizer.optimize(
-                      expressionAnalyzer.analyze(sortField.getField(), context), context);
+                  var analyzed = expressionAnalyzer.analyze(sortField.getField(), context);
+                  if (analyzed == null) {
+                    throw new UnsupportedOperationException(
+                        String.format("Invalid use of expression %s", sortField.getField())
+                    );
+                  }
+                  Expression expression = optimizer.optimize(analyzed, context);
                   return ImmutablePair.of(analyzeSortOption(sortField.getFieldArgs()), expression);
                 })
             .collect(Collectors.toList());
@@ -520,6 +576,23 @@ public class Analyzer extends AbstractNodeVisitor<LogicalPlan, AnalysisContext> 
     return new LogicalML(child, node.getArguments());
   }
 
+  @Override
+  public LogicalPlan visitPaginate(Paginate paginate, AnalysisContext context) {
+    LogicalPlan child = paginate.getChild().get(0).accept(this, context);
+    return new LogicalPaginate(paginate.getPageSize(), List.of(child));
+  }
+
+  @Override
+  public LogicalPlan visitFetchCursor(FetchCursor cursor, AnalysisContext context) {
+    return new LogicalFetchCursor(cursor.getCursor(),
+      dataSourceService.getDataSource(DEFAULT_DATASOURCE_NAME).getStorageEngine());
+  }
+
+  @Override
+  public LogicalPlan visitCloseCursor(CloseCursor closeCursor, AnalysisContext context) {
+    return new LogicalCloseCursor(closeCursor.getChild().get(0).accept(this, context));
+  }
+
   /**
    * The first argument is always "asc", others are optional.
    * Given nullFirst argument, use its value. Otherwise just use DEFAULT_ASC/DESC.
@@ -535,5 +608,4 @@ public class Analyzer extends AbstractNodeVisitor<LogicalPlan, AnalysisContext> 
     }
     return asc ? SortOption.DEFAULT_ASC : SortOption.DEFAULT_DESC;
   }
-
 }

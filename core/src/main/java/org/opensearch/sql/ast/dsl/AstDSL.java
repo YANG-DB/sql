@@ -30,10 +30,12 @@ import org.opensearch.sql.ast.expression.Interval;
 import org.opensearch.sql.ast.expression.Let;
 import org.opensearch.sql.ast.expression.Literal;
 import org.opensearch.sql.ast.expression.Map;
+import org.opensearch.sql.ast.expression.NestedAllTupleFields;
 import org.opensearch.sql.ast.expression.Not;
 import org.opensearch.sql.ast.expression.Or;
 import org.opensearch.sql.ast.expression.ParseMethod;
 import org.opensearch.sql.ast.expression.QualifiedName;
+import org.opensearch.sql.ast.expression.ScoreFunction;
 import org.opensearch.sql.ast.expression.Span;
 import org.opensearch.sql.ast.expression.SpanUnit;
 import org.opensearch.sql.ast.expression.UnresolvedArgument;
@@ -60,7 +62,6 @@ import org.opensearch.sql.ast.tree.Sort.SortOption;
 import org.opensearch.sql.ast.tree.TableFunction;
 import org.opensearch.sql.ast.tree.UnresolvedPlan;
 import org.opensearch.sql.ast.tree.Values;
-import org.opensearch.sql.expression.function.BuiltinFunctionName;
 
 /**
  * Class of static methods to create specific node instances.
@@ -285,6 +286,11 @@ public class AstDSL {
     return new HighlightFunction(fieldName, arguments);
   }
 
+  public UnresolvedExpression score(UnresolvedExpression relevanceQuery,
+                                    Literal relevanceFieldWeight) {
+    return new ScoreFunction(relevanceQuery, relevanceFieldWeight);
+  }
+
   public UnresolvedExpression window(UnresolvedExpression function,
                                      List<UnresolvedExpression> partitionByList,
                                      List<Pair<SortOption, UnresolvedExpression>> sortList) {
@@ -370,6 +376,10 @@ public class AstDSL {
 
   public Alias alias(String name, UnresolvedExpression expr, String alias) {
     return new Alias(name, expr, alias);
+  }
+
+  public NestedAllTupleFields nestedAllTupleFields(String path) {
+    return new NestedAllTupleFields(path);
   }
 
   public static List<UnresolvedExpression> exprList(UnresolvedExpression... exprList) {

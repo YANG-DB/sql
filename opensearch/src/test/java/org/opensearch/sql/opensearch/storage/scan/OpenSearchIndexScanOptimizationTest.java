@@ -7,6 +7,7 @@
 package org.opensearch.sql.opensearch.storage.scan;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -18,10 +19,13 @@ import static org.opensearch.sql.data.type.ExprCoreType.DOUBLE;
 import static org.opensearch.sql.data.type.ExprCoreType.INTEGER;
 import static org.opensearch.sql.data.type.ExprCoreType.LONG;
 import static org.opensearch.sql.data.type.ExprCoreType.STRING;
+import static org.opensearch.sql.expression.DSL.literal;
 import static org.opensearch.sql.planner.logical.LogicalPlanDSL.aggregation;
 import static org.opensearch.sql.planner.logical.LogicalPlanDSL.filter;
 import static org.opensearch.sql.planner.logical.LogicalPlanDSL.highlight;
 import static org.opensearch.sql.planner.logical.LogicalPlanDSL.limit;
+import static org.opensearch.sql.planner.logical.LogicalPlanDSL.nested;
+import static org.opensearch.sql.planner.logical.LogicalPlanDSL.paginate;
 import static org.opensearch.sql.planner.logical.LogicalPlanDSL.project;
 import static org.opensearch.sql.planner.logical.LogicalPlanDSL.relation;
 import static org.opensearch.sql.planner.logical.LogicalPlanDSL.sort;
@@ -29,13 +33,16 @@ import static org.opensearch.sql.planner.optimizer.rule.read.TableScanPushDown.P
 import static org.opensearch.sql.planner.optimizer.rule.read.TableScanPushDown.PUSH_DOWN_FILTER;
 import static org.opensearch.sql.planner.optimizer.rule.read.TableScanPushDown.PUSH_DOWN_HIGHLIGHT;
 import static org.opensearch.sql.planner.optimizer.rule.read.TableScanPushDown.PUSH_DOWN_LIMIT;
+import static org.opensearch.sql.planner.optimizer.rule.read.TableScanPushDown.PUSH_DOWN_NESTED;
 import static org.opensearch.sql.planner.optimizer.rule.read.TableScanPushDown.PUSH_DOWN_PROJECT;
 import static org.opensearch.sql.planner.optimizer.rule.read.TableScanPushDown.PUSH_DOWN_SORT;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -52,27 +59,34 @@ import org.opensearch.search.aggregations.AggregationBuilder;
 import org.opensearch.search.aggregations.AggregationBuilders;
 import org.opensearch.search.aggregations.bucket.composite.CompositeAggregationBuilder;
 import org.opensearch.search.aggregations.bucket.composite.TermsValuesSourceBuilder;
+import org.opensearch.search.sort.NestedSortBuilder;
 import org.opensearch.search.sort.SortBuilder;
 import org.opensearch.search.sort.SortBuilders;
 import org.opensearch.search.sort.SortOrder;
 import org.opensearch.sql.ast.expression.Literal;
 import org.opensearch.sql.ast.tree.Sort.SortOption;
+import org.opensearch.sql.data.model.ExprTupleValue;
+import org.opensearch.sql.data.model.ExprValueUtils;
 import org.opensearch.sql.data.type.ExprType;
 import org.opensearch.sql.expression.DSL;
+import org.opensearch.sql.expression.FunctionExpression;
 import org.opensearch.sql.expression.HighlightExpression;
+import org.opensearch.sql.expression.NamedExpression;
 import org.opensearch.sql.expression.ReferenceExpression;
+import org.opensearch.sql.expression.function.OpenSearchFunctions;
 import org.opensearch.sql.opensearch.data.type.OpenSearchDataType;
 import org.opensearch.sql.opensearch.request.OpenSearchRequestBuilder;
 import org.opensearch.sql.opensearch.response.agg.CompositeAggregationParser;
 import org.opensearch.sql.opensearch.response.agg.OpenSearchAggregationResponseParser;
 import org.opensearch.sql.opensearch.response.agg.SingleValueParser;
-import org.opensearch.sql.opensearch.storage.OpenSearchIndexScan;
 import org.opensearch.sql.opensearch.storage.script.aggregation.AggregationQueryBuilder;
+import org.opensearch.sql.planner.logical.LogicalAggregation;
+import org.opensearch.sql.planner.logical.LogicalNested;
 import org.opensearch.sql.planner.logical.LogicalPlan;
 import org.opensearch.sql.planner.optimizer.LogicalPlanOptimizer;
+import org.opensearch.sql.planner.optimizer.PushDownPageSize;
 import org.opensearch.sql.planner.optimizer.rule.read.CreateTableScanBuilder;
 import org.opensearch.sql.storage.Table;
-
 
 @ExtendWith(MockitoExtension.class)
 class OpenSearchIndexScanOptimizationTest {
@@ -92,16 +106,15 @@ class OpenSearchIndexScanOptimizationTest {
 
   @BeforeEach
   void setUp() {
-    indexScanBuilder = new OpenSearchIndexScanBuilder(indexScan);
+    indexScanBuilder = new OpenSearchIndexScanBuilder(requestBuilder, requestBuilder -> indexScan);
     when(table.createScanBuilder()).thenReturn(indexScanBuilder);
-    when(indexScan.getRequestBuilder()).thenReturn(requestBuilder);
   }
 
   @Test
   void test_project_push_down() {
     assertEqualsAfterOptimization(
         project(
-            indexScanAggBuilder(
+            indexScanBuilder(
                 withProjectPushedDown(DSL.ref("intV", INTEGER))),
             DSL.named("i", DSL.ref("intV", INTEGER))
         ),
@@ -132,6 +145,119 @@ class OpenSearchIndexScanOptimizationTest {
             DSL.named("i", DSL.ref("intV", INTEGER))
         )
     );
+  }
+
+  /**
+   * SELECT intV as i FROM schema WHERE query_string(["intV^1.5", "QUERY", boost=12.5).
+   */
+  @Test
+  void test_filter_on_opensearchfunction_with_trackedscores_push_down() {
+    LogicalPlan expectedPlan =
+        project(
+            indexScanBuilder(
+                withFilterPushedDown(
+                    QueryBuilders.queryStringQuery("QUERY")
+                        .field("intV", 1.5F)
+                        .boost(12.5F)
+                ),
+                withTrackedScoresPushedDown(true)
+            ),
+            DSL.named("i", DSL.ref("intV", INTEGER))
+        );
+    FunctionExpression queryString = DSL.query_string(
+          DSL.namedArgument("fields", DSL.literal(
+              new ExprTupleValue(new LinkedHashMap<>(ImmutableMap.of(
+                  "intV", ExprValueUtils.floatValue(1.5F)))))),
+          DSL.namedArgument("query", "QUERY"),
+          DSL.namedArgument("boost", "12.5"));
+
+    ((OpenSearchFunctions.OpenSearchFunction) queryString).setScoreTracked(true);
+
+    LogicalPlan logicalPlan = project(
+        filter(
+            relation("schema", table),
+            queryString
+        ),
+        DSL.named("i", DSL.ref("intV", INTEGER))
+    );
+    assertEqualsAfterOptimization(expectedPlan, logicalPlan);
+  }
+
+  @Test
+  void test_filter_on_multiple_opensearchfunctions_with_trackedscores_push_down() {
+    LogicalPlan expectedPlan =
+        project(
+            indexScanBuilder(
+                withFilterPushedDown(
+                    QueryBuilders.boolQuery()
+                        .should(
+                            QueryBuilders.queryStringQuery("QUERY")
+                                .field("intV", 1.5F)
+                                .boost(12.5F))
+                        .should(
+                            QueryBuilders.queryStringQuery("QUERY")
+                                .field("intV", 1.5F)
+                                .boost(12.5F)
+                        )
+                ),
+                withTrackedScoresPushedDown(true)
+            ),
+            DSL.named("i", DSL.ref("intV", INTEGER))
+        );
+    FunctionExpression firstQueryString = DSL.query_string(
+        DSL.namedArgument("fields", DSL.literal(
+            new ExprTupleValue(new LinkedHashMap<>(ImmutableMap.of(
+                "intV", ExprValueUtils.floatValue(1.5F)))))),
+        DSL.namedArgument("query", "QUERY"),
+        DSL.namedArgument("boost", "12.5"));
+    ((OpenSearchFunctions.OpenSearchFunction) firstQueryString).setScoreTracked(false);
+    FunctionExpression secondQueryString = DSL.query_string(
+        DSL.namedArgument("fields", DSL.literal(
+            new ExprTupleValue(new LinkedHashMap<>(ImmutableMap.of(
+                "intV", ExprValueUtils.floatValue(1.5F)))))),
+        DSL.namedArgument("query", "QUERY"),
+        DSL.namedArgument("boost", "12.5"));
+    ((OpenSearchFunctions.OpenSearchFunction) secondQueryString).setScoreTracked(true);
+
+    LogicalPlan logicalPlan = project(
+        filter(
+            relation("schema", table),
+            DSL.or(firstQueryString, secondQueryString)
+        ),
+        DSL.named("i", DSL.ref("intV", INTEGER))
+    );
+    assertEqualsAfterOptimization(expectedPlan, logicalPlan);
+  }
+
+  @Test
+  void test_filter_on_opensearchfunction_without_trackedscores_push_down() {
+    LogicalPlan expectedPlan =
+        project(
+            indexScanBuilder(
+                withFilterPushedDown(
+                    QueryBuilders.queryStringQuery("QUERY")
+                        .field("intV", 1.5F)
+                        .boost(12.5F)
+                ),
+                withTrackedScoresPushedDown(false)
+            ),
+            DSL.named("i", DSL.ref("intV", INTEGER))
+        );
+    FunctionExpression queryString = DSL.query_string(
+        DSL.namedArgument("fields", DSL.literal(
+            new ExprTupleValue(new LinkedHashMap<>(ImmutableMap.of(
+                "intV", ExprValueUtils.floatValue(1.5F)))))),
+        DSL.namedArgument("query", "QUERY"),
+        DSL.namedArgument("boost", "12.5"));
+
+    LogicalPlan logicalPlan = project(
+        filter(
+            relation("schema", table),
+            queryString
+        ),
+        DSL.named("i", DSL.ref("intV", INTEGER))
+    );
+    assertEqualsAfterOptimization(expectedPlan, logicalPlan);
   }
 
   /**
@@ -211,6 +337,36 @@ class OpenSearchIndexScanOptimizationTest {
   }
 
   @Test
+  void test_page_push_down() {
+    assertEqualsAfterOptimization(
+        project(
+          indexScanBuilder(
+            withPageSizePushDown(5)),
+          DSL.named("intV", DSL.ref("intV", INTEGER))
+        ),
+        paginate(project(
+            relation("schema", table),
+          DSL.named("intV", DSL.ref("intV", INTEGER))
+        ), 5
+      ));
+  }
+
+  @Test
+  void test_score_sort_push_down() {
+    assertEqualsAfterOptimization(
+        indexScanBuilder(
+            withSortPushedDown(
+                SortBuilders.scoreSort().order(SortOrder.ASC)
+            )
+        ),
+        sort(
+            relation("schema", table),
+            Pair.of(SortOption.DEFAULT_ASC, DSL.ref("_score", INTEGER))
+        )
+    );
+  }
+
+  @Test
   void test_limit_push_down() {
     assertEqualsAfterOptimization(
         project(
@@ -242,6 +398,39 @@ class OpenSearchIndexScanOptimizationTest {
                 DSL.literal("*"), Collections.emptyMap()),
                 DSL.named("highlight(*)",
                     new HighlightExpression(DSL.literal("*")))
+        )
+    );
+  }
+
+  @Test
+  void test_nested_push_down() {
+    List<Map<String, ReferenceExpression>> args = List.of(
+        Map.of(
+            "field", new ReferenceExpression("message.info", STRING),
+            "path", new ReferenceExpression("message", STRING)
+        )
+    );
+
+    List<NamedExpression> projectList =
+        List.of(
+            new NamedExpression("message.info", DSL.nested(DSL.ref("message.info", STRING)), null)
+        );
+
+    LogicalNested nested = new LogicalNested(null, args, projectList);
+
+    assertEqualsAfterOptimization(
+        project(
+            nested(
+            indexScanBuilder(
+                withNestedPushedDown(nested.getFields())), args, projectList),
+                DSL.named("message.info",
+                    DSL.nested(DSL.ref("message.info", STRING)))
+        ),
+        project(
+            nested(
+                relation("schema", table), args, projectList),
+            DSL.named("message.info",
+                DSL.nested(DSL.ref("message.info", STRING)))
         )
     );
   }
@@ -388,6 +577,76 @@ class OpenSearchIndexScanOptimizationTest {
   }
 
   @Test
+  void test_nested_sort_filter_push_down() {
+    assertEqualsAfterOptimization(
+        project(
+            indexScanBuilder(
+                withFilterPushedDown(QueryBuilders.termQuery("intV", 1)),
+                withSortPushedDown(
+                    SortBuilders.fieldSort("message.info")
+                        .order(SortOrder.ASC)
+                        .setNestedSort(new NestedSortBuilder("message")))),
+            DSL.named("intV", DSL.ref("intV", INTEGER))
+        ),
+        project(
+                sort(
+                    filter(
+                        relation("schema", table),
+                        DSL.equal(DSL.ref("intV", INTEGER), DSL.literal(integerValue(1)))
+                    ),
+                    Pair.of(
+                        SortOption.DEFAULT_ASC, DSL.nested(DSL.ref("message.info", STRING))
+                    )
+                ),
+            DSL.named("intV", DSL.ref("intV", INTEGER))
+        )
+    );
+  }
+
+  @Test
+  void test_function_expression_sort_returns_optimized_logical_sort() {
+    // Invalid use case coverage OpenSearchIndexScanBuilder::sortByFieldsOnly returns false
+    assertEqualsAfterOptimization(
+        sort(
+            indexScanBuilder(),
+            Pair.of(
+                SortOption.DEFAULT_ASC,
+                DSL.match(DSL.namedArgument("field", literal("message")))
+            )
+        ),
+        sort(
+            relation("schema", table),
+            Pair.of(
+                SortOption.DEFAULT_ASC,
+                DSL.match(DSL.namedArgument("field", literal("message"))
+                )
+            )
+        )
+    );
+  }
+
+  @Test
+  void test_non_field_sort_returns_optimized_logical_sort() {
+    // Invalid use case coverage OpenSearchIndexScanBuilder::sortByFieldsOnly returns false
+    assertEqualsAfterOptimization(
+        sort(
+            indexScanBuilder(),
+            Pair.of(
+                SortOption.DEFAULT_ASC,
+                DSL.literal("field")
+            )
+        ),
+        sort(
+            relation("schema", table),
+            Pair.of(
+                SortOption.DEFAULT_ASC,
+                DSL.literal("field")
+            )
+        )
+    );
+  }
+
+  @Test
   void sort_with_expression_cannot_merge_with_relation() {
     assertEqualsAfterOptimization(
         sort(
@@ -504,16 +763,20 @@ class OpenSearchIndexScanOptimizationTest {
 
   private OpenSearchIndexScanBuilder indexScanBuilder(Runnable... verifyPushDownCalls) {
     this.verifyPushDownCalls = verifyPushDownCalls;
-    return new OpenSearchIndexScanBuilder(new OpenSearchIndexScanQueryBuilder(indexScan));
+    return new OpenSearchIndexScanBuilder(new OpenSearchIndexScanQueryBuilder(requestBuilder),
+        requestBuilder -> indexScan);
   }
 
   private OpenSearchIndexScanBuilder indexScanAggBuilder(Runnable... verifyPushDownCalls) {
     this.verifyPushDownCalls = verifyPushDownCalls;
-    return new OpenSearchIndexScanBuilder(new OpenSearchIndexScanAggregationBuilder(indexScan));
+    var aggregationBuilder = new OpenSearchIndexScanAggregationBuilder(
+        requestBuilder, mock(LogicalAggregation.class));
+    return new OpenSearchIndexScanBuilder(aggregationBuilder, builder -> indexScan);
   }
 
   private void assertEqualsAfterOptimization(LogicalPlan expected, LogicalPlan actual) {
-    assertEquals(expected, optimize(actual));
+    final var optimized = optimize(actual);
+    assertEquals(expected, optimized);
 
     // Trigger build to make sure all push down actually happened in scan builder
     indexScanBuilder.build();
@@ -527,7 +790,7 @@ class OpenSearchIndexScanOptimizationTest {
   }
 
   private Runnable withFilterPushedDown(QueryBuilder filteringCondition) {
-    return () -> verify(requestBuilder, times(1)).pushDown(filteringCondition);
+    return () -> verify(requestBuilder, times(1)).pushDownFilter(filteringCondition);
   }
 
   private Runnable withAggregationPushedDown(
@@ -577,6 +840,18 @@ class OpenSearchIndexScanOptimizationTest {
     return () -> verify(requestBuilder, times(1)).pushDownHighlight(field, arguments);
   }
 
+  private Runnable withNestedPushedDown(List<Map<String, ReferenceExpression>> fields) {
+    return () -> verify(requestBuilder, times(1)).pushDownNested(fields);
+  }
+
+  private Runnable withTrackedScoresPushedDown(boolean trackScores) {
+    return () -> verify(requestBuilder, times(1)).pushDownTrackedScore(trackScores);
+  }
+
+  private Runnable withPageSizePushDown(int pageSize) {
+    return () -> verify(requestBuilder, times(1)).pushDownPageSize(pageSize);
+  }
+
   private static AggregationAssertHelper.AggregationAssertHelperBuilder aggregate(String aggName) {
     var aggBuilder = new AggregationAssertHelper.AggregationAssertHelperBuilder();
     aggBuilder.aggregateName = aggName;
@@ -602,11 +877,13 @@ class OpenSearchIndexScanOptimizationTest {
   private LogicalPlan optimize(LogicalPlan plan) {
     LogicalPlanOptimizer optimizer = new LogicalPlanOptimizer(List.of(
         new CreateTableScanBuilder(),
+        new PushDownPageSize(),
         PUSH_DOWN_FILTER,
         PUSH_DOWN_AGGREGATION,
         PUSH_DOWN_SORT,
         PUSH_DOWN_LIMIT,
         PUSH_DOWN_HIGHLIGHT,
+        PUSH_DOWN_NESTED,
         PUSH_DOWN_PROJECT));
     return optimizer.optimize(plan);
   }

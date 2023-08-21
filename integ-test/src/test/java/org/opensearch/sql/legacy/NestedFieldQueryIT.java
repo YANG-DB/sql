@@ -15,7 +15,9 @@ import static org.hamcrest.Matchers.is;
 import static org.opensearch.sql.util.MatcherUtils.hitAll;
 import static org.opensearch.sql.util.MatcherUtils.kvString;
 
+import com.fasterxml.jackson.core.JsonFactory;
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.function.Function;
 import org.hamcrest.BaseMatcher;
@@ -31,11 +33,10 @@ import org.junit.Test;
 import org.opensearch.action.search.SearchResponse;
 import org.opensearch.client.ResponseException;
 import org.opensearch.common.xcontent.LoggingDeprecationHandler;
-import org.opensearch.common.xcontent.XContentFactory;
-import org.opensearch.common.xcontent.XContentType;
+import org.opensearch.common.xcontent.json.JsonXContentParser;
 import org.opensearch.core.xcontent.NamedXContentRegistry;
 import org.opensearch.core.xcontent.XContentParser;
-import org.opensearch.rest.RestStatus;
+import org.opensearch.core.rest.RestStatus;
 import org.opensearch.search.SearchHit;
 
 /**
@@ -316,7 +317,7 @@ public class NestedFieldQueryIT extends SQLIntegTestCase {
     JSONObject result = executeQuery(sql);
     JSONObject aggregation = getAggregation(result, "message.dayOfWeek@NESTED");
 
-    Assert.assertThat((Double) aggregation.query("/avgDay/value"), closeTo(3.166666666, 0.01));
+    Assert.assertThat(((BigDecimal) aggregation.query("/avgDay/value")).doubleValue(), closeTo(3.166666666, 0.01));
   }
 
   @Test
@@ -350,10 +351,10 @@ public class NestedFieldQueryIT extends SQLIntegTestCase {
     Assert.assertNotNull(msgInfoBuckets);
     Assert.assertThat(msgInfoBuckets.length(), equalTo(2));
     Assert.assertThat(msgInfoBuckets.query("/0/key"), equalTo("a"));
-    Assert.assertThat((Double) msgInfoBuckets.query("/0/message.dayOfWeek@NESTED/sumDay/value"),
+    Assert.assertThat(((BigDecimal) msgInfoBuckets.query("/0/message.dayOfWeek@NESTED/sumDay/value")).doubleValue(),
         closeTo(9.0, 0.01));
     Assert.assertThat(msgInfoBuckets.query("/1/key"), equalTo("b"));
-    Assert.assertThat((Double) msgInfoBuckets.query("/1/message.dayOfWeek@NESTED/sumDay/value"),
+    Assert.assertThat(((BigDecimal) msgInfoBuckets.query("/1/message.dayOfWeek@NESTED/sumDay/value")).doubleValue(),
         closeTo(10.0, 0.01));
   }
 
@@ -593,12 +594,12 @@ public class NestedFieldQueryIT extends SQLIntegTestCase {
     Assert.assertThat(bucket.length(), equalTo(2));
     Assert.assertThat(bucket.query("/0/key"), equalTo("Bob Smith"));
     Assert.assertThat(
-        bucket.query("/0/projects.started_year@NESTED/projects.started_year@FILTER/max/value"),
-        equalTo(2015.0));
+        ((BigDecimal) bucket.query("/0/projects.started_year@NESTED/projects.started_year@FILTER/max/value")).doubleValue(),
+        closeTo(2015.0, 0.01));
     Assert.assertThat(bucket.query("/1/key"), equalTo("Jane Smith"));
     Assert.assertThat(
-        bucket.query("/1/projects.started_year@NESTED/projects.started_year@FILTER/max/value"),
-        equalTo(2015.0));
+        ((BigDecimal) bucket.query("/1/projects.started_year@NESTED/projects.started_year@FILTER/max/value")).doubleValue(),
+        closeTo(2015.0, 0.01));
   }
 
   @Test
@@ -780,12 +781,12 @@ public class NestedFieldQueryIT extends SQLIntegTestCase {
     Assert.assertThat(bucket.length(), equalTo(2));
     Assert.assertThat(bucket.query("/0/key"), equalTo("Bob Smith"));
     Assert.assertThat(
-        bucket.query("/0/projects.started_year@NESTED/projects.started_year@FILTER/max_0/value"),
-        equalTo(2015.0));
+        ((BigDecimal) bucket.query("/0/projects.started_year@NESTED/projects.started_year@FILTER/max_0/value")).doubleValue(),
+        closeTo(2015.0, 0.01));
     Assert.assertThat(bucket.query("/1/key"), equalTo("Jane Smith"));
     Assert.assertThat(
-        bucket.query("/1/projects.started_year@NESTED/projects.started_year@FILTER/max_0/value"),
-        equalTo(2015.0));
+        ((BigDecimal) bucket.query("/1/projects.started_year@NESTED/projects.started_year@FILTER/max_0/value")).doubleValue(),
+        closeTo(2015.0, 0.01));
   }
 
   /***********************************************************
@@ -888,10 +889,10 @@ public class NestedFieldQueryIT extends SQLIntegTestCase {
   private SearchResponse execute(String sql) throws IOException {
     final JSONObject jsonObject = executeQuery(sql);
 
-    final XContentParser parser = XContentFactory.xContent(XContentType.JSON).createParser(
+    final XContentParser parser = new JsonXContentParser(
         NamedXContentRegistry.EMPTY,
         LoggingDeprecationHandler.INSTANCE,
-        jsonObject.toString());
+        new JsonFactory().createParser(jsonObject.toString()));
     return SearchResponse.fromXContent(parser);
   }
 

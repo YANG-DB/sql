@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-
 package org.opensearch.sql.planner.logical;
 
 import org.opensearch.sql.storage.read.TableScanBuilder;
@@ -73,6 +72,10 @@ public abstract class LogicalPlanNodeVisitor<R, C> {
     return visitNode(plan, context);
   }
 
+  public R visitNested(LogicalNested plan, C context) {
+    return visitNode(plan, context);
+  }
+
   public R visitSort(LogicalSort plan, C context) {
     return visitNode(plan, context);
   }
@@ -98,6 +101,18 @@ public abstract class LogicalPlanNodeVisitor<R, C> {
   }
 
   public R visitAD(LogicalAD plan, C context) {
+    return visitNode(plan, context);
+  }
+
+  public R visitPaginate(LogicalPaginate plan, C context) {
+    return visitNode(plan, context);
+  }
+
+  public R visitFetchCursor(LogicalFetchCursor plan, C context) {
+    return visitNode(plan, context);
+  }
+
+  public R visitCloseCursor(LogicalCloseCursor plan, C context) {
     return visitNode(plan, context);
   }
 }

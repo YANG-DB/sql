@@ -29,11 +29,22 @@ public class TypeEnvironment implements Environment<Symbol, ExprType> {
   private final TypeEnvironment parent;
   private final SymbolTable symbolTable;
 
+  /**
+   * Constructor with empty symbol tables.
+   *
+   * @param parent parent environment
+   */
   public TypeEnvironment(TypeEnvironment parent) {
     this.parent = parent;
     this.symbolTable = new SymbolTable();
   }
 
+  /**
+   * Constructor with empty reserved symbol table.
+   *
+   * @param parent parent environment
+   * @param symbolTable type table
+   */
   public TypeEnvironment(TypeEnvironment parent, SymbolTable symbolTable) {
     this.parent = parent;
     this.symbolTable = symbolTable;
@@ -59,12 +70,24 @@ public class TypeEnvironment implements Environment<Symbol, ExprType> {
 
   /**
    * Resolve all fields in the current environment.
+   *
    * @param namespace     a namespace
    * @return              all symbols in the namespace
    */
   public Map<String, ExprType> lookupAllFields(Namespace namespace) {
     Map<String, ExprType> result = new LinkedHashMap<>();
     symbolTable.lookupAllFields(namespace).forEach(result::putIfAbsent);
+    return result;
+  }
+
+  /**
+   * Resolve all fields in the current environment.
+   * @param namespace     a namespace
+   * @return              all symbols in the namespace
+   */
+  public Map<String, ExprType> lookupAllTupleFields(Namespace namespace) {
+    Map<String, ExprType> result = new LinkedHashMap<>();
+    symbolTable.lookupAllTupleFields(namespace).forEach(result::putIfAbsent);
     return result;
   }
 
@@ -102,7 +125,7 @@ public class TypeEnvironment implements Environment<Symbol, ExprType> {
    * Clear all fields in the current environment.
    */
   public void clearAllFields() {
-    lookupAllFields(FIELD_NAME).keySet().stream()
-            .forEach(v -> remove(new Symbol(Namespace.FIELD_NAME, v)));
+    lookupAllFields(FIELD_NAME).keySet().forEach(
+        v -> remove(new Symbol(Namespace.FIELD_NAME, v)));
   }
 }

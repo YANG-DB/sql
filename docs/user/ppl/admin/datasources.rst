@@ -17,6 +17,11 @@ The concept of ``datasource`` is introduced to support the federation of SQL/PPL
 This helps PPL users to leverage data from multiple data stores and derive correlation and insights.
 Datasource definition provides the information to connect to a data store and also gives a name to them to refer in PPL commands.
 
+Refer below sections for quick setup.
+
+* `Datasource configuration APIs`_
+* `Master Key config for encrypting credential information`_
+
 
 Definitions of datasource and connector
 ====================================
@@ -47,7 +52,7 @@ Datasource configuration Restrictions.
     * ``prometheus`` [More details: `Prometheus Connector <prometheus_connector.rst>`_]
 * All the allowed config parameters in ``properties`` are defined in individual connector pages mentioned above.
 
-Datasource configuration Management.
+Datasource configuration APIs
 ======================================
 Datasource configuration can be managed using below REST APIs. All the examples below are for OpenSearch domains enabled with secure domain.
 we can remove authorization and other details in case of security disabled domains.
@@ -113,6 +118,39 @@ Each of the datasource configuration management apis are controlled by following
 
 Only users mapped with roles having above actions are authorized to execute datasource management apis.
 
+Master Key config for encrypting credential information
+========================================================
+* When users provide credentials for a data source, the system encrypts and securely stores them in the metadata index. System uses "AES/GCM/NoPadding" symmetric encryption algorithm.
+* Master key is a required config and users can set this up by configuring the `plugins.query.datasources.encryption.masterkey` setting in the opensearch.yml file.
+* The master key must be 16, 24, or 32 characters long.
+* Sample Bash Script to generate a 24 character master key ::
+
+    #!/bin/bash
+    # Generate a 24-character key
+    master_key=$(openssl rand -hex 12)
+    echo "Master Key: $master_key"
+* Sample python script to generate a 24 character master key ::
+
+    import random
+    import string
+
+    # Generate a 24-character random master key
+    master_key = ''.join(random.choices(string.ascii_letters + string.digits, k=24))
+
+    # Print the master key
+    print("Generated master key:", master_key)
+
+Datasource Allow Hosts Config
+========================================================
+* In the OpenSearch configuration file (opensearch.yml), the parameter "plugins.query.datasources.uri.allowhosts" can be utilized to control the permitted hosts within the datasource URI configuration.
+* By default, the value is set to `.*`, which allows any domain to be accepted.
+* For instance, if you set the value to `dummy.*.com`, the following URIs are some examples that would be allowed in the datasource configuration:
+   - https://dummy.prometheus.com:9080
+   - http://dummy.prometheus.com
+
+Note: The mentioned URIs are just examples to illustrate the concept.
+
+
 Using a datasource in PPL command
 ====================================
 Datasource is referred in source command as show in the code block below.
@@ -127,7 +165,7 @@ Example source command with prometheus datasource ::
 
 
 Authorization of PPL commands on datasources
-==============================================
+============================================
 In case of secure opensearch domains, only admins and users with roles mentioned in datasource configuration are allowed to make queries.
 For example: with below datasource configuration, only admins and users with prometheus_access role can run queries on my_prometheus datasource. ::
 
@@ -144,7 +182,7 @@ For example: with below datasource configuration, only admins and users with pro
     }
 
 
-Limitations of datasource
-====================================
-Datasource settings are global and users with PPL access are allowed to fetch data from all the defined datasources.
-PPL access can be controlled using roles.(More details: `Security Settings <security.rst>`_)
+Moving from keystore datasource configuration
+=============================================
+* In versions prior to 2.7, the plugins.query.federation.datasources.config key store setting was used to configure datasources, but it has been deprecated and will be removed in version 3.0.
+* To port previously configured datasources from the keystore, users can use the `create datasource` REST API mentioned in the above section.

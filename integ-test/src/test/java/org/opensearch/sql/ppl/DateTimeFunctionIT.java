@@ -6,37 +6,19 @@
 
 package org.opensearch.sql.ppl;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.opensearch.sql.legacy.TestsConstants.TEST_INDEX_BANK;
 import static org.opensearch.sql.legacy.TestsConstants.TEST_INDEX_DATE;
-import static org.opensearch.sql.legacy.TestsConstants.TEST_INDEX_PEOPLE2;
-import static org.opensearch.sql.sql.DateTimeFunctionIT.utcDateTimeNow;
 import static org.opensearch.sql.util.MatcherUtils.rows;
 import static org.opensearch.sql.util.MatcherUtils.schema;
 import static org.opensearch.sql.util.MatcherUtils.verifyDataRows;
 import static org.opensearch.sql.util.MatcherUtils.verifySchema;
 import static org.opensearch.sql.util.MatcherUtils.verifySome;
 
-import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.time.LocalDate;
 import java.time.LocalTime;
-import java.time.Duration;
-import java.time.LocalDateTime;
-import java.time.Period;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeFormatterBuilder;
-import java.time.temporal.ChronoField;
-import java.time.temporal.Temporal;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.TimeZone;
-import java.util.function.BiFunction;
-import java.util.function.Supplier;
-import java.util.stream.Collectors;
-import org.json.JSONArray;
 import org.json.JSONObject;
 import org.junit.After;
 import org.junit.Before;
@@ -426,6 +408,45 @@ public class DateTimeFunctionIT extends PPLIntegTestCase {
   }
 
   @Test
+  public void testDay_of_week() throws IOException {
+    JSONObject result = executeQuery(String.format(
+            "source=%s | eval f =  day_of_week(date('2020-09-16')) | fields f", TEST_INDEX_DATE));
+    verifySchema(result, schema("f", null, "integer"));
+    verifySome(result.getJSONArray("datarows"), rows(4));
+
+    result = executeQuery(String.format(
+            "source=%s | eval f =  day_of_week('2020-09-16') | fields f", TEST_INDEX_DATE));
+    verifySchema(result, schema("f", null, "integer"));
+    verifySome(result.getJSONArray("datarows"), rows(4));
+  }
+
+  @Test
+  public void testDay_of_month() throws IOException {
+    JSONObject result = executeQuery(String.format(
+            "source=%s | eval f =  day_of_month(date('2020-09-16')) | fields f", TEST_INDEX_DATE));
+    verifySchema(result, schema("f", null, "integer"));
+    verifySome(result.getJSONArray("datarows"), rows(16));
+
+    result = executeQuery(String.format(
+            "source=%s | eval f =  day_of_month('2020-09-16') | fields f", TEST_INDEX_DATE));
+    verifySchema(result, schema("f", null, "integer"));
+    verifySome(result.getJSONArray("datarows"), rows(16));
+  }
+
+  @Test
+  public void testDay_of_year() throws IOException {
+    JSONObject result = executeQuery(String.format(
+            "source=%s | eval f =  day_of_year(date('2020-09-16')) | fields f", TEST_INDEX_DATE));
+    verifySchema(result, schema("f", null, "integer"));
+    verifySome(result.getJSONArray("datarows"), rows(260));
+
+    result = executeQuery(String.format(
+            "source=%s | eval f =  day_of_year('2020-09-16') | fields f", TEST_INDEX_DATE));
+    verifySchema(result, schema("f", null, "integer"));
+    verifySome(result.getJSONArray("datarows"), rows(260));
+  }
+
+  @Test
   public void testDayName() throws IOException {
     JSONObject result = executeQuery(String.format(
             "source=%s | eval f =  dayname(date('2020-09-16')) | fields f", TEST_INDEX_DATE));
@@ -509,6 +530,29 @@ public class DateTimeFunctionIT extends PPLIntegTestCase {
   }
 
   @Test
+  public void testHour_of_day() throws IOException {
+    JSONObject result = executeQuery(String.format(
+            "source=%s | eval f =  hour_of_day(timestamp('2020-09-16 17:30:00')) | fields f", TEST_INDEX_DATE));
+    verifySchema(result, schema("f", null, "integer"));
+    verifySome(result.getJSONArray("datarows"), rows(17));
+
+    result = executeQuery(String.format(
+            "source=%s | eval f =  hour_of_day(time('17:30:00')) | fields f", TEST_INDEX_DATE));
+    verifySchema(result, schema("f", null, "integer"));
+    verifySome(result.getJSONArray("datarows"), rows(17));
+
+    result = executeQuery(String.format(
+            "source=%s | eval f =  hour_of_day('2020-09-16 17:30:00') | fields f", TEST_INDEX_DATE));
+    verifySchema(result, schema("f", null, "integer"));
+    verifySome(result.getJSONArray("datarows"), rows(17));
+
+    result = executeQuery(String.format(
+            "source=%s | eval f =  hour_of_day('17:30:00') | fields f", TEST_INDEX_DATE));
+    verifySchema(result, schema("f", null, "integer"));
+    verifySome(result.getJSONArray("datarows"), rows(17));
+  }
+
+  @Test
   public void testMicrosecond() throws IOException {
     JSONObject result = executeQuery(String.format(
             "source=%s | eval f =  microsecond(timestamp('2020-09-16 17:30:00.123456')) | fields f", TEST_INDEX_DATE));
@@ -579,6 +623,52 @@ public class DateTimeFunctionIT extends PPLIntegTestCase {
   }
 
   @Test
+  public void testMinute_of_hour() throws IOException {
+    JSONObject result = executeQuery(String.format(
+            "source=%s | eval f =  minute_of_hour(timestamp('2020-09-16 17:30:00')) | fields f", TEST_INDEX_DATE));
+    verifySchema(result, schema("f", null, "integer"));
+    verifySome(result.getJSONArray("datarows"), rows(30));
+
+    result = executeQuery(String.format(
+            "source=%s | eval f =  minute_of_hour(time('17:30:00')) | fields f", TEST_INDEX_DATE));
+    verifySchema(result, schema("f", null, "integer"));
+    verifySome(result.getJSONArray("datarows"), rows(30));
+
+    result = executeQuery(String.format(
+            "source=%s | eval f =  minute_of_hour('2020-09-16 17:30:00') | fields f", TEST_INDEX_DATE));
+    verifySchema(result, schema("f", null, "integer"));
+    verifySome(result.getJSONArray("datarows"), rows(30));
+
+    result = executeQuery(String.format(
+            "source=%s | eval f =  minute_of_hour('17:30:00') | fields f", TEST_INDEX_DATE));
+    verifySchema(result, schema("f", null, "integer"));
+    verifySome(result.getJSONArray("datarows"), rows(30));
+  }
+
+  @Test
+  public void testMinute_of_day() throws IOException {
+    JSONObject result = executeQuery(String.format(
+            "source=%s | eval f =  minute_of_day(timestamp('2020-09-16 17:30:00')) | fields f", TEST_INDEX_DATE));
+    verifySchema(result, schema("f", null, "integer"));
+    verifySome(result.getJSONArray("datarows"), rows(1050));
+
+    result = executeQuery(String.format(
+            "source=%s | eval f =  minute_of_day(time('17:30:00')) | fields f", TEST_INDEX_DATE));
+    verifySchema(result, schema("f", null, "integer"));
+    verifySome(result.getJSONArray("datarows"), rows(1050));
+
+    result = executeQuery(String.format(
+            "source=%s | eval f =  minute_of_day('2020-09-16 17:30:00') | fields f", TEST_INDEX_DATE));
+    verifySchema(result, schema("f", null, "integer"));
+    verifySome(result.getJSONArray("datarows"), rows(1050));
+
+    result = executeQuery(String.format(
+            "source=%s | eval f =  minute_of_day('17:30:00') | fields f", TEST_INDEX_DATE));
+    verifySchema(result, schema("f", null, "integer"));
+    verifySome(result.getJSONArray("datarows"), rows(1050));
+  }
+
+  @Test
   public void testMonth() throws IOException {
     JSONObject result = executeQuery(String.format(
             "source=%s | eval f =  month(date('2020-09-16')) | fields f", TEST_INDEX_DATE));
@@ -587,6 +677,19 @@ public class DateTimeFunctionIT extends PPLIntegTestCase {
 
     result = executeQuery(String.format(
             "source=%s | eval f =  month('2020-09-16') | fields f", TEST_INDEX_DATE));
+    verifySchema(result, schema("f", null, "integer"));
+    verifySome(result.getJSONArray("datarows"), rows(9));
+  }
+
+  @Test
+  public void testMonth_of_year() throws IOException {
+    JSONObject result = executeQuery(String.format(
+            "source=%s | eval f =  month_of_year(date('2020-09-16')) | fields f", TEST_INDEX_DATE));
+    verifySchema(result, schema("f", null, "integer"));
+    verifySome(result.getJSONArray("datarows"), rows(9));
+
+    result = executeQuery(String.format(
+            "source=%s | eval f =  month_of_year('2020-09-16') | fields f", TEST_INDEX_DATE));
     verifySchema(result, schema("f", null, "integer"));
     verifySome(result.getJSONArray("datarows"), rows(9));
   }
@@ -636,6 +739,29 @@ public class DateTimeFunctionIT extends PPLIntegTestCase {
 
     result = executeQuery(String.format(
             "source=%s | eval f =  second('17:30:00') | fields f", TEST_INDEX_DATE));
+    verifySchema(result, schema("f", null, "integer"));
+    verifySome(result.getJSONArray("datarows"), rows(0));
+  }
+
+  @Test
+  public void testSecond_of_minute() throws IOException {
+    JSONObject result = executeQuery(String.format(
+            "source=%s | eval f =  second_of_minute(timestamp('2020-09-16 17:30:00')) | fields f", TEST_INDEX_DATE));
+    verifySchema(result, schema("f", null, "integer"));
+    verifySome(result.getJSONArray("datarows"), rows(0));
+
+    result = executeQuery(String.format(
+            "source=%s | eval f =  second_of_minute(time('17:30:00')) | fields f", TEST_INDEX_DATE));
+    verifySchema(result, schema("f", null, "integer"));
+    verifySome(result.getJSONArray("datarows"), rows(0));
+
+    result = executeQuery(String.format(
+            "source=%s | eval f =  second_of_minute('2020-09-16 17:30:00') | fields f", TEST_INDEX_DATE));
+    verifySchema(result, schema("f", null, "integer"));
+    verifySome(result.getJSONArray("datarows"), rows(0));
+
+    result = executeQuery(String.format(
+            "source=%s | eval f =  second_of_minute('17:30:00') | fields f", TEST_INDEX_DATE));
     verifySchema(result, schema("f", null, "integer"));
     verifySome(result.getJSONArray("datarows"), rows(0));
   }
@@ -758,6 +884,14 @@ public class DateTimeFunctionIT extends PPLIntegTestCase {
   }
 
   @Test
+  public void testWeek_of_year() throws IOException {
+    JSONObject result = executeQuery(String.format(
+            "source=%s | eval f = week_of_year(date('2008-02-20')) | fields f", TEST_INDEX_DATE));
+    verifySchema(result, schema("f", null, "integer"));
+    verifySome(result.getJSONArray("datarows"), rows(7));
+  }
+
+  @Test
   public void testYear() throws IOException {
     JSONObject result = executeQuery(String.format(
         "source=%s | eval f =  year(date('2020-09-16')) | fields f", TEST_INDEX_DATE));
@@ -772,13 +906,13 @@ public class DateTimeFunctionIT extends PPLIntegTestCase {
 
   void verifyDateFormat(String date, String type, String format, String formatted) throws IOException {
     JSONObject result = executeQuery(String.format(
-        "source=%s | eval f =  date_format(%s('%s'), '%s') | fields f",
+        "source=%s | eval f = date_format(%s('%s'), '%s') | fields f",
         TEST_INDEX_DATE, type, date, format));
     verifySchema(result, schema("f", null, "string"));
     verifySome(result.getJSONArray("datarows"), rows(formatted));
 
     result = executeQuery(String.format(
-        "source=%s | eval f =  date_format('%s', '%s') | fields f",
+        "source=%s | eval f = date_format('%s', '%s') | fields f",
         TEST_INDEX_DATE, date, format));
     verifySchema(result, schema("f", null, "string"));
     verifySome(result.getJSONArray("datarows"), rows(formatted));
@@ -826,189 +960,6 @@ public class DateTimeFunctionIT extends PPLIntegTestCase {
         "source=%s | eval f1 = MAKEDATE(1945, 5.9), f2 = MAKEDATE(1984, 1984) | fields f1, f2", TEST_INDEX_DATE));
     verifySchema(result, schema("f1", null, "date"), schema("f2", null, "date"));
     verifySome(result.getJSONArray("datarows"), rows("1945-01-06", "1989-06-06"));
-  }
-
-  private List<ImmutableMap<Object, Object>> nowLikeFunctionsData() {
-    return List.of(
-      ImmutableMap.builder()
-              .put("name", "now")
-              .put("hasFsp", false)
-              .put("hasShortcut", false)
-              .put("constValue", true)
-              .put("referenceGetter", (Supplier<Temporal>) LocalDateTime::now)
-              .put("parser", (BiFunction<CharSequence, DateTimeFormatter, Temporal>) LocalDateTime::parse)
-              .put("serializationPattern", "uuuu-MM-dd HH:mm:ss")
-              .build(),
-      ImmutableMap.builder()
-              .put("name", "current_timestamp")
-              .put("hasFsp", false)
-              .put("hasShortcut", false)
-              .put("constValue", true)
-              .put("referenceGetter", (Supplier<Temporal>) LocalDateTime::now)
-              .put("parser", (BiFunction<CharSequence, DateTimeFormatter, Temporal>) LocalDateTime::parse)
-              .put("serializationPattern", "uuuu-MM-dd HH:mm:ss")
-              .build(),
-      ImmutableMap.builder()
-              .put("name", "localtimestamp")
-              .put("hasFsp", false)
-              .put("hasShortcut", false)
-              .put("constValue", true)
-              .put("referenceGetter", (Supplier<Temporal>) LocalDateTime::now)
-              .put("parser", (BiFunction<CharSequence, DateTimeFormatter, Temporal>) LocalDateTime::parse)
-              .put("serializationPattern", "uuuu-MM-dd HH:mm:ss")
-              .build(),
-      ImmutableMap.builder()
-              .put("name", "localtime")
-              .put("hasFsp", false)
-              .put("hasShortcut", false)
-              .put("constValue", true)
-              .put("referenceGetter", (Supplier<Temporal>) LocalDateTime::now)
-              .put("parser", (BiFunction<CharSequence, DateTimeFormatter, Temporal>) LocalDateTime::parse)
-              .put("serializationPattern", "uuuu-MM-dd HH:mm:ss")
-              .build(),
-      ImmutableMap.builder()
-              .put("name", "sysdate")
-              .put("hasFsp", true)
-              .put("hasShortcut", false)
-              .put("constValue", false)
-              .put("referenceGetter", (Supplier<Temporal>) LocalDateTime::now)
-              .put("parser", (BiFunction<CharSequence, DateTimeFormatter, Temporal>) LocalDateTime::parse)
-              .put("serializationPattern", "uuuu-MM-dd HH:mm:ss")
-              .build(),
-      ImmutableMap.builder()
-              .put("name", "curtime")
-              .put("hasFsp", false)
-              .put("hasShortcut", false)
-              .put("constValue", false)
-              .put("referenceGetter", (Supplier<Temporal>) LocalTime::now)
-              .put("parser", (BiFunction<CharSequence, DateTimeFormatter, Temporal>) LocalTime::parse)
-              .put("serializationPattern", "HH:mm:ss")
-              .build(),
-      ImmutableMap.builder()
-              .put("name", "current_time")
-              .put("hasFsp", false)
-              .put("hasShortcut", false)
-              .put("constValue", false)
-              .put("referenceGetter", (Supplier<Temporal>) LocalTime::now)
-              .put("parser", (BiFunction<CharSequence, DateTimeFormatter, Temporal>) LocalTime::parse)
-              .put("serializationPattern", "HH:mm:ss")
-              .build(),
-      ImmutableMap.builder()
-              .put("name", "curdate")
-              .put("hasFsp", false)
-              .put("hasShortcut", false)
-              .put("constValue", false)
-              .put("referenceGetter", (Supplier<Temporal>) LocalDate::now)
-              .put("parser", (BiFunction<CharSequence, DateTimeFormatter, Temporal>) LocalDate::parse)
-              .put("serializationPattern", "uuuu-MM-dd")
-              .build(),
-      ImmutableMap.builder()
-              .put("name", "current_date")
-              .put("hasFsp", false)
-              .put("hasShortcut", false)
-              .put("constValue", false)
-              .put("referenceGetter", (Supplier<Temporal>) LocalDate::now)
-              .put("parser", (BiFunction<CharSequence, DateTimeFormatter, Temporal>) LocalDate::parse)
-              .put("serializationPattern", "uuuu-MM-dd")
-              .build(),
-      ImmutableMap.builder()
-              .put("name", "utc_date")
-              .put("hasFsp", false)
-              .put("hasShortcut", false)
-              .put("constValue", true)
-              .put("referenceGetter", (Supplier<Temporal>) ()-> utcDateTimeNow().toLocalDate())
-              .put("parser", (BiFunction<CharSequence, DateTimeFormatter, Temporal>) LocalDate::parse)
-              .put("serializationPattern", "uuuu-MM-dd")
-              .build(),
-      ImmutableMap.builder()
-              .put("name", "utc_time")
-              .put("hasFsp", false)
-              .put("hasShortcut", false)
-              .put("constValue", true)
-              .put("referenceGetter", (Supplier<Temporal>) ()-> utcDateTimeNow().toLocalTime())
-              .put("parser", (BiFunction<CharSequence, DateTimeFormatter, Temporal>) LocalTime::parse)
-              .put("serializationPattern", "HH:mm:ss")
-              .build(),
-      ImmutableMap.builder()
-              .put("name", "utc_timestamp")
-              .put("hasFsp", false)
-              .put("hasShortcut", false)
-              .put("constValue", true)
-              .put("referenceGetter", (Supplier<Temporal>) ()-> utcDateTimeNow())
-              .put("parser", (BiFunction<CharSequence, DateTimeFormatter, Temporal>) LocalDateTime::parse)
-              .put("serializationPattern", "uuuu-MM-dd HH:mm:ss")
-              .build()
-    );
-  }
-
-  private long getDiff(Temporal sample, Temporal reference) {
-    if (sample instanceof LocalDate) {
-      return Period.between((LocalDate) sample, (LocalDate) reference).getDays();
-    }
-    return Duration.between(sample, reference).toSeconds();
-  }
-
-  @Test
-  public void testNowLikeFunctions() throws IOException {
-    for (var funcData : nowLikeFunctionsData()) {
-      String name = (String) funcData.get("name");
-      Boolean hasFsp = (Boolean) funcData.get("hasFsp");
-      Boolean hasShortcut = (Boolean) funcData.get("hasShortcut");
-      Boolean constValue = (Boolean) funcData.get("constValue");
-      Supplier<Temporal> referenceGetter = (Supplier<Temporal>) funcData.get("referenceGetter");
-      BiFunction<CharSequence, DateTimeFormatter, Temporal> parser =
-              (BiFunction<CharSequence, DateTimeFormatter, Temporal>) funcData.get("parser");
-      String serializationPatternStr = (String) funcData.get("serializationPattern");
-
-      var serializationPattern = new DateTimeFormatterBuilder()
-              .appendPattern(serializationPatternStr)
-              .optionalStart()
-              .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true)
-              .toFormatter();
-
-      Temporal reference = referenceGetter.get();
-      double delta = 2d; // acceptable time diff, secs
-      if (reference instanceof LocalDate)
-        delta = 1d; // Max date delta could be 1 if test runs on the very edge of two days
-                    // We ignore probability of a test run on edge of month or year to simplify the checks
-
-      var calls = new ArrayList<String>() {{
-        add(name + "()");
-      }};
-      if (hasShortcut)
-        calls.add(name);
-      if (hasFsp)
-        calls.add(name + "(0)");
-
-      // Column order is: func(), func, func(0)
-      //                   shortcut ^    fsp ^
-      // Query looks like:
-      //    source=people2 | eval `now()`=now() | fields `now()`;
-      JSONObject result = executeQuery("source=" + TEST_INDEX_PEOPLE2
-          + " | eval " + calls.stream().map(c -> String.format("`%s`=%s", c, c)).collect(Collectors.joining(","))
-          + " | fields " + calls.stream().map(c -> String.format("`%s`", c)).collect(Collectors.joining(",")));
-
-      var rows = result.getJSONArray("datarows");
-      JSONArray firstRow = rows.getJSONArray(0);
-      for (int i = 0; i < rows.length(); i++) {
-        var row = rows.getJSONArray(i);
-        if (constValue)
-          assertTrue(firstRow.similar(row));
-
-        int column = 0;
-        assertEquals(0,
-            getDiff(reference, parser.apply(row.getString(column++), serializationPattern)), delta);
-
-        if (hasShortcut) {
-          assertEquals(0,
-              getDiff(reference, parser.apply(row.getString(column++), serializationPattern)), delta);
-        }
-        if (hasFsp) {
-          assertEquals(0,
-              getDiff(reference, parser.apply(row.getString(column), serializationPattern)), delta);
-        }
-      }
-    }
   }
 
   @Test
@@ -1111,4 +1062,85 @@ public class DateTimeFunctionIT extends PPLIntegTestCase {
     verifySchema(result, schema("f", null, "time"));
     verifySome(result.getJSONArray("datarows"), rows("10:59:59"));
   }
+
+  @Test
+  public void testGetFormat() throws IOException{
+    var result = executeQuery(String.format("source=%s | eval f = date_format('2003-10-03', get_format(DATE,'USA')) | fields f", TEST_INDEX_DATE));
+    verifySchema(result, schema("f", null, "string"));
+    verifySome(result.getJSONArray("datarows"), rows("10.03.2003"));
+  }
+
+  @Test
+  public void testLastDay() throws IOException{
+    var result = executeQuery(String.format("source=%s | eval f = last_day('2003-10-03') | fields f", TEST_INDEX_DATE));
+    verifySchema(result, schema("f", null, "date"));
+    verifySome(result.getJSONArray("datarows"), rows("2003-10-31"));
+  }
+
+  @Test
+  public void testSecToTime() throws IOException{
+    var result = executeQuery(String.format("source=%s | eval f = sec_to_time(123456) | fields f", TEST_INDEX_DATE));
+    verifySchema(result, schema("f", null, "time"));
+    verifySome(result.getJSONArray("datarows"), rows("10:17:36"));
+  }
+
+  @Test
+  public void testYearWeek() throws IOException{
+    var result = executeQuery(String.format("source=%s | eval f1 = yearweek('2003-10-03') | eval f2 = yearweek('2003-10-03', 3) | fields f1, f2", TEST_INDEX_DATE));
+    verifySchema(result,
+            schema("f1", null, "integer"),
+            schema("f2", null, "integer"));
+    verifySome(result.getJSONArray("datarows"), rows(200339, 200340));
+  }
+
+  @Test
+  public void testWeekDay() throws IOException{
+    var result = executeQuery(String.format("source=%s | eval f = weekday('2003-10-03') | fields f", TEST_INDEX_DATE));
+    verifySchema(result, schema("f", null, "integer"));
+    verifySome(result.getJSONArray("datarows"), rows(4));
+  }
+
+  @Test
+  public void testToSeconds() throws IOException{
+    var result = executeQuery(String.format("source=%s | eval f1 = to_seconds(date('2008-10-07')) | " +
+            "eval f2 = to_seconds('2020-09-16 07:40:00') | " +
+            "eval f3 = to_seconds(DATETIME('2020-09-16 07:40:00')) | fields f1, f2, f3", TEST_INDEX_DATE));
+    verifySchema(result,
+            schema("f1", null, "long"),
+            schema("f2", null, "long"),
+            schema("f3", null, "long"));
+    verifySome(result.getJSONArray("datarows"), rows(63390556800L, 63767461200L, 63767461200L));
+  }
+
+  @Test
+  public void testStrToDate() throws IOException{
+    var result = executeQuery(String.format("source=%s | eval f = str_to_date('01,5,2013', '%s') | fields f", TEST_INDEX_DATE, "%d,%m,%Y"));
+    verifySchema(result, schema("f", null, "datetime"));
+    verifySome(result.getJSONArray("datarows"), rows("2013-05-01 00:00:00"));
+  }
+
+  @Test
+  public void testTimeStampAdd() throws IOException{
+    var result = executeQuery(String.format("source=%s | eval f = timestampadd(YEAR, 15, '2001-03-06 00:00:00') | fields f", TEST_INDEX_DATE));
+    verifySchema(result, schema("f", null, "datetime"));
+    verifySome(result.getJSONArray("datarows"), rows("2016-03-06 00:00:00"));
+  }
+
+  @Test
+  public void testTimestampDiff() throws IOException{
+    var result = executeQuery(String.format("source=%s | eval f = timestampdiff(YEAR, '1997-01-01 00:00:00', '2001-03-06 00:00:00') | fields f", TEST_INDEX_DATE));
+    verifySchema(result, schema("f", null, "datetime"));
+    verifySome(result.getJSONArray("datarows"), rows(4));
+  }
+
+  @Test
+  public void testExtract() throws IOException{
+    var result = executeQuery(String.format("source=%s | eval f1 = extract(YEAR FROM '1997-01-01 00:00:00') | eval f2 = extract(MINUTE FROM time('10:17:36')) | fields f1, f2", TEST_INDEX_DATE));
+    verifySchema(result,
+            schema("f1", null, "long"),
+            schema("f2", null, "long"));
+    verifySome(result.getJSONArray("datarows"), rows(1997L, 17L));
+  }
+
+
 }

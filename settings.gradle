@@ -19,3 +19,6 @@ include 'legacy'
 include 'sql'
 include 'prometheus'
 include 'benchmarks'
+include 'datasources'
+include 'spark'
+

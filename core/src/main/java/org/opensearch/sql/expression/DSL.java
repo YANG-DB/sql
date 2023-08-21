@@ -307,6 +307,10 @@ public class DSL {
     return compile(FunctionProperties.None, BuiltinFunctionName.COS, expressions);
   }
 
+  public static FunctionExpression cosh(Expression... expressions) {
+    return compile(FunctionProperties.None, BuiltinFunctionName.COSH, expressions);
+  }
+
   public static FunctionExpression cot(Expression... expressions) {
     return compile(FunctionProperties.None, BuiltinFunctionName.COT, expressions);
   }
@@ -497,7 +501,6 @@ public class DSL {
     return to_seconds(FunctionProperties.None, expressions);
   }
 
-
   public static FunctionExpression week(
       FunctionProperties functionProperties, Expression... expressions) {
     return compile(functionProperties, BuiltinFunctionName.WEEK, expressions);
@@ -618,6 +621,10 @@ public class DSL {
 
   public static FunctionExpression xor(Expression... expressions) {
     return compile(FunctionProperties.None, BuiltinFunctionName.XOR, expressions);
+  }
+
+  public static FunctionExpression nested(Expression... expressions) {
+    return compile(FunctionProperties.None, BuiltinFunctionName.NESTED, expressions);
   }
 
   public static FunctionExpression not(Expression... expressions) {
@@ -862,7 +869,19 @@ public class DSL {
   }
 
   public static FunctionExpression wildcard_query(Expression... args) {
-    return compile(FunctionProperties.None,BuiltinFunctionName.WILDCARD_QUERY, args);
+    return compile(FunctionProperties.None, BuiltinFunctionName.WILDCARD_QUERY, args);
+  }
+
+  public static FunctionExpression score(Expression... args) {
+    return compile(FunctionProperties.None, BuiltinFunctionName.SCORE, args);
+  }
+
+  public static FunctionExpression scorequery(Expression... args) {
+    return compile(FunctionProperties.None, BuiltinFunctionName.SCOREQUERY, args);
+  }
+
+  public static FunctionExpression score_query(Expression... args) {
+    return compile(FunctionProperties.None, BuiltinFunctionName.SCORE_QUERY, args);
   }
 
   public static FunctionExpression now(FunctionProperties functionProperties,

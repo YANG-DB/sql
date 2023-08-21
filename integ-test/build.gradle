@@ -26,6 +26,7 @@ import org.opensearch.gradle.test.RestIntegTestTask
 import org.opensearch.gradle.testclusters.StandaloneRestIntegTestTask
 
 import java.util.concurrent.Callable
+import java.util.stream.Collectors
 
 plugins {
     id "de.undercouch.download" version "5.3.0"
@@ -43,6 +44,11 @@ apply plugin: 'com.wiredforcode.spawn'
 repositories {
     mavenCentral()
     maven { url 'https://jitpack.io' }
+
+    // Add extra repository for the JDBC driver if given by user
+    if (System.getProperty("jdbcRepo") != null && new File(System.getProperty("jdbcRepo")).isDirectory()) {
+        maven { url new File(System.getProperty("jdbcRepo")) }
+    }
 }
 
 ext {
@@ -63,16 +69,15 @@ configurations.all {
     resolutionStrategy.force "commons-logging:commons-logging:1.2"
     // enforce 1.1.3, https://www.whitesourcesoftware.com/vulnerability-database/WS-2019-0379
     resolutionStrategy.force 'commons-codec:commons-codec:1.13'
-    resolutionStrategy.force 'com.google.guava:guava:31.0.1-jre'
+    resolutionStrategy.force 'com.google.guava:guava:32.0.1-jre'
     resolutionStrategy.force "com.fasterxml.jackson.core:jackson-core:${versions.jackson}"
     resolutionStrategy.force "com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:${versions.jackson}"
     resolutionStrategy.force "com.fasterxml.jackson.dataformat:jackson-dataformat-smile:${versions.jackson}"
     resolutionStrategy.force "com.fasterxml.jackson.dataformat:jackson-dataformat-cbor:${versions.jackson}"
     resolutionStrategy.force "com.fasterxml.jackson.core:jackson-databind:${versions.jackson_databind}"
-    resolutionStrategy.force "org.jetbrains.kotlin:kotlin-stdlib:1.6.0"
-    resolutionStrategy.force "org.jetbrains.kotlin:kotlin-stdlib-common:1.6.0"
     resolutionStrategy.force "com.squareup.okhttp3:okhttp:4.9.3"
     resolutionStrategy.force "org.apache.httpcomponents:httpcore:4.4.13"
+    resolutionStrategy.force "org.apache.httpcomponents:httpclient:4.5.14"
     resolutionStrategy.force "joda-time:joda-time:2.10.12"
     resolutionStrategy.force "org.slf4j:slf4j-api:1.7.36"
 }
@@ -81,16 +86,16 @@ dependencies {
     testImplementation group: 'org.opensearch.test', name: 'framework', version: "${opensearch_version}"
     testImplementation group: 'org.opensearch.client', name: 'opensearch-rest-high-level-client', version: "${opensearch_version}"
     testImplementation group: 'org.opensearch.client', name: 'opensearch-rest-client', version: "${opensearch_version}"
-    testImplementation group: 'org.opensearch.driver', name: 'opensearch-sql-jdbc', version: '1.2.0.0'
+    testImplementation group: 'org.opensearch.driver', name: 'opensearch-sql-jdbc', version: System.getProperty("jdbcDriverVersion", '1.2.0.0')
     testImplementation group: 'org.hamcrest', name: 'hamcrest', version: '2.1'
-    implementation group: 'org.apache.logging.log4j', name: 'log4j-core', version:'2.17.1'
+    implementation group: 'org.apache.logging.log4j', name: 'log4j-core', version:'2.20.0'
     testImplementation project(':opensearch-sql-plugin')
     testImplementation project(':legacy')
     testImplementation('org.junit.jupiter:junit-jupiter-api:5.6.2')
     testRuntimeOnly('org.junit.jupiter:junit-jupiter-engine:5.6.2')
 
-    testImplementation group: 'com.h2database', name: 'h2', version: '2.1.214'
-    testImplementation group: 'org.xerial', name: 'sqlite-jdbc', version: '3.28.0'
+    testImplementation group: 'com.h2database', name: 'h2', version: '2.2.220'
+    testImplementation group: 'org.xerial', name: 'sqlite-jdbc', version: '3.41.2.2'
     testImplementation group: 'com.google.code.gson', name: 'gson', version: '2.8.9'
 }
 
@@ -110,11 +115,22 @@ compileTestJava {
 
 testClusters.all {
     testDistribution = 'archive'
+
+    // debug with command, ./gradlew opensearch-sql:run -DdebugJVM. --debug-jvm does not work with keystore.
+    if (System.getProperty("debugJVM") != null) {
+        jvmArgs '-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005'
+    }
 }
 
 testClusters.integTest {
     plugin ":opensearch-sql-plugin"
-    keystore 'plugins.query.federation.datasources.config', new File("$projectDir/src/test/resources/datasource/", 'datasources.json')
+    setting "plugins.query.datasources.encryption.masterkey", "1234567812345678"
+}
+
+testClusters {
+    remoteCluster {
+        plugin ":opensearch-sql-plugin"
+    }
 }
 
 task startPrometheus(type: SpawnProcessTask) {
@@ -149,8 +165,73 @@ task stopPrometheus(type: KillProcessTask) {
 
 stopPrometheus.mustRunAfter startPrometheus
 
+task integJdbcTest(type: RestIntegTestTask) {
+    testClusters.findAll {c -> c.clusterName == "integJdbcTest"}.first().
+        plugin ":opensearch-sql-plugin"
+
+    useJUnitPlatform()
+    dependsOn ':opensearch-sql-plugin:bundlePlugin'
+    testLogging {
+        events "passed", "skipped", "failed"
+    }
+    afterTest { desc, result ->
+        logger.quiet "${desc.className}.${desc.name}: ${result.resultType} ${(result.getEndTime() - result.getStartTime())/1000}s"
+    }
+
+    if (System.getProperty("jdbcDriverVersion") != null) {
+        systemProperty "jdbcDriverVersion", System.getProperty("jdbcDriverVersion")
+    }
+
+    if (System.getProperty("jdbcFile") != null) {
+        systemProperty "jdbcFile", System.getProperty("jdbcFile")
+    }
+
+    systemProperty 'tests.security.manager', 'false'
+    systemProperty('project.root', project.projectDir.absolutePath)
+
+    systemProperty "https", System.getProperty("https")
+    systemProperty "user", System.getProperty("user")
+    systemProperty "password", System.getProperty("password")
+
+    // Set default query size limit
+    systemProperty 'defaultQuerySizeLimit', '10000'
+
+    // Tell the test JVM if the cluster JVM is running under a debugger so that tests can use longer timeouts for
+    // requests. The 'doFirst' delays reading the debug setting on the cluster till execution time.
+    doFirst { systemProperty 'cluster.debug', getDebug() }
+
+    if (System.getProperty("test.debug") != null) {
+        jvmArgs '-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=*:5005'
+    }
+
+    filter {
+        includeTestsMatching 'org.opensearch.sql.jdbc.*'
+    }
+}
+
 // Run PPL ITs and new, legacy and comparison SQL ITs with new SQL engine enabled
 integTest {
+    useCluster testClusters.remoteCluster
+
+    // Set properties for connection to clusters and between clusters
+    doFirst {
+        getClusters().forEach { cluster ->
+            String allTransportSocketURI = cluster.nodes.stream().flatMap { node ->
+                node.getAllTransportPortURI().stream()
+            }.collect(Collectors.joining(","))
+            String allHttpSocketURI = cluster.nodes.stream().flatMap { node ->
+                node.getAllHttpSocketURI().stream()
+            }.collect(Collectors.joining(","))
+
+            systemProperty "tests.rest.${cluster.name}.http_hosts", "${-> allHttpSocketURI}"
+            systemProperty "tests.rest.${cluster.name}.transport_hosts", "${-> allTransportSocketURI}"
+        }
+    }
+
+    testLogging {
+        events "passed", "skipped", "failed"
+    }
+
     dependsOn ':opensearch-sql-plugin:bundlePlugin'
     if(getOSFamilyType() != "windows") {
         dependsOn startPrometheus
@@ -168,10 +249,16 @@ integTest {
 
     // Tell the test JVM if the cluster JVM is running under a debugger so that tests can use longer timeouts for
     // requests. The 'doFirst' delays reading the debug setting on the cluster till execution time.
-    doFirst { systemProperty 'cluster.debug', getDebug() }
+    doFirst {
+        if (System.getProperty("debug-jvm") != null) {
+            setDebug(true);
+        }
+        systemProperty 'cluster.debug', getDebug()
+    }
+
 
     if (System.getProperty("test.debug") != null) {
-        jvmArgs '-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=*:5005'
+        jvmArgs '-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=*:5006'
     }
 
     if (System.getProperty("tests.rest.bwcsuite") == null) {
@@ -200,10 +287,19 @@ integTest {
 
     // Skip this IT because all assertions are against explain output
     exclude 'org/opensearch/sql/legacy/OrderIT.class'
+
+    // Exclude JDBC related tests
+    exclude 'org/opensearch/sql/jdbc/**'
+
+    // Exclude this IT until running IT with security plugin enabled is ready
+    exclude 'org/opensearch/sql/ppl/CrossClusterSearchIT.class'
 }
 
 
 task comparisonTest(type: RestIntegTestTask) {
+    testLogging {
+        events "passed", "skipped", "failed"
+    }
     dependsOn ':opensearch-sql-plugin:bundlePlugin'
 
     systemProperty 'tests.security.manager', 'false'
@@ -221,6 +317,9 @@ task comparisonTest(type: RestIntegTestTask) {
     exclude 'org/opensearch/sql/doctest/**/*IT.class'
     exclude 'org/opensearch/sql/ppl/**/*IT.class'
     exclude 'org/opensearch/sql/legacy/**/*IT.class'
+
+    // Exclude JDBC related tests
+    exclude 'org/opensearch/sql/jdbc/**'
 
     // Enable logging output to console
     testLogging.showStandardStreams true
@@ -432,6 +531,9 @@ task "${baseName}#fullRestartClusterTask"(type: StandaloneRestIntegTestTask) {
 
 // A bwc test suite which runs all the bwc tasks combined
 task bwcTestSuite(type: StandaloneRestIntegTestTask) {
+    testLogging {
+        events "passed", "skipped", "failed"
+    }
     exclude '**/*Test*'
     exclude '**/*IT*'
     dependsOn tasks.named("${baseName}#mixedClusterTask")
@@ -443,6 +545,9 @@ def opensearch_tmp_dir = rootProject.file('build/private/es_tmp').absoluteFile
 opensearch_tmp_dir.mkdirs()
 
 task integTestRemote(type: RestIntegTestTask) {
+    testLogging {
+        events "passed", "skipped", "failed"
+    }
     testClassesDirs = sourceSets.test.output.classesDirs
     classpath = sourceSets.test.runtimeClasspath
     systemProperty 'tests.security.manager', 'false'
@@ -470,4 +575,5 @@ task integTestRemote(type: RestIntegTestTask) {
     exclude 'org/opensearch/sql/legacy/TermQueryExplainIT.class'
     exclude 'org/opensearch/sql/legacy/QueryAnalysisIT.class'
     exclude 'org/opensearch/sql/legacy/OrderIT.class'
+    exclude 'org/opensearch/sql/jdbc/**'
 }

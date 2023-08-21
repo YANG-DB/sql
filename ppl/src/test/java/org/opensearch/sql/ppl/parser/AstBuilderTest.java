@@ -78,6 +78,20 @@ public class AstBuilderTest {
   }
 
   @Test
+  public void testSearchCrossClusterCommand() {
+    assertEqual("search source=c:t",
+        relation(qualifiedName("c:t"))
+    );
+  }
+
+  @Test
+  public void testSearchMatchAllCrossClusterCommand() {
+    assertEqual("search source=*:t",
+        relation(qualifiedName("*:t"))
+    );
+  }
+
+  @Test
   public void testPrometheusSearchCommand() {
     assertEqual("search source = prometheus.http_requests_total",
         relation(qualifiedName("prometheus", "http_requests_total"))
@@ -98,7 +112,6 @@ public class AstBuilderTest {
     );
   }
 
-  @Ignore
   @Test
   public void testSearchWithPrometheusQueryRangeWithPositionedArguments() {
     assertEqual("search source = prometheus.query_range(\"test{code='200'}\",1234, 12345, 3)",
@@ -110,7 +123,6 @@ public class AstBuilderTest {
     ));
   }
 
-  @Ignore
   @Test
   public void testSearchWithPrometheusQueryRangeWithNamedArguments() {
     assertEqual("search source = prometheus.query_range(query = \"test{code='200'}\", "
@@ -252,6 +264,27 @@ public class AstBuilderTest {
   @Test
   public void testStatsCommandWithByClause() {
     assertEqual("source=t | stats count(a) by b DEDUP_SPLITVALUES=false",
+        agg(
+            relation("t"),
+            exprList(
+                alias(
+                    "count(a)",
+                    aggregate("count", field("a"))
+                )
+            ),
+            emptyList(),
+            exprList(
+                alias(
+                    "b",
+                    field("b")
+                )),
+            defaultStatsArgs()
+        ));
+  }
+
+  @Test
+  public void testStatsCommandWithByClauseInBackticks() {
+    assertEqual("source=t | stats count(a) by `b` DEDUP_SPLITVALUES=false",
         agg(
             relation("t"),
             exprList(
@@ -734,6 +767,12 @@ public class AstBuilderTest {
   public void testDescribeCommand() {
     assertEqual("describe t",
         relation(mappingTable("t")));
+  }
+
+  @Test
+  public void testDescribeMatchAllCrossClusterSearchCommand() {
+    assertEqual("describe *:t",
+        relation(mappingTable("*:t")));
   }
 
   @Test

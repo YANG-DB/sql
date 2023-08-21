@@ -7,26 +7,66 @@
 
 package org.opensearch.sql.ppl;
 
+import static org.opensearch.sql.prometheus.data.constants.PrometheusFieldConstants.LABELS;
 import static org.opensearch.sql.prometheus.data.constants.PrometheusFieldConstants.TIMESTAMP;
 import static org.opensearch.sql.prometheus.data.constants.PrometheusFieldConstants.VALUE;
+import static org.opensearch.sql.util.MatcherUtils.assertJsonEquals;
 import static org.opensearch.sql.util.MatcherUtils.schema;
 import static org.opensearch.sql.util.MatcherUtils.verifySchema;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.io.Resources;
+import java.io.IOException;
+import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import lombok.Data;
 import lombok.SneakyThrows;
 import org.apache.commons.lang3.StringUtils;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.junit.After;
+import org.junit.Assert;
+import org.junit.BeforeClass;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.opensearch.client.Request;
+import org.opensearch.client.Response;
+import org.opensearch.sql.datasource.model.DataSourceMetadata;
+import org.opensearch.sql.datasource.model.DataSourceType;
 
 public class PrometheusDataSourceCommandsIT extends PPLIntegTestCase {
 
+  /**
+   * Integ tests are dependent on self generated metrics in prometheus instance.
+   * When running individual integ tests there
+   * is no time for generation of metrics in the test prometheus instance.
+   * This method gives prometheus time to generate metrics on itself.
+   * @throws InterruptedException
+   */
+  @BeforeClass
+  protected static void metricGenerationWait() throws InterruptedException {
+    Thread.sleep(10000);
+  }
 
   @Override
-  protected void init() throws Exception {
-    loadIndex(Index.DATASOURCES);
+  protected void init() throws InterruptedException, IOException {
+    DataSourceMetadata createDSM =
+        new DataSourceMetadata("my_prometheus", DataSourceType.PROMETHEUS,
+            ImmutableList.of(), ImmutableMap.of("prometheus.uri", "http://localhost:9090"));
+    Request createRequest = getCreateDataSourceRequest(createDSM);
+    Response response = client().performRequest(createRequest);
+    Assert.assertEquals(201, response.getStatusLine().getStatusCode());
+  }
+
+  @After
+  protected void deleteDataSourceMetadata() throws IOException {
+    Request deleteRequest = getDeleteDataSourceRequest("my_prometheus");
+    Response deleteResponse = client().performRequest(deleteRequest);
+    Assert.assertEquals(204, deleteResponse.getStatusLine().getStatusCode());
   }
 
   @Test
@@ -79,8 +119,8 @@ public class PrometheusDataSourceCommandsIT extends PPLIntegTestCase {
     verifySchema(response,
         schema("agg",  "double"),
         schema("span(@timestamp,15s)", "timestamp"),
-        schema("`handler`", "string"),
-        schema("`job`", "string"));
+        schema("handler", "string"),
+        schema("job", "string"));
     Assertions.assertTrue(response.getInt("size") > 0);
     Assertions.assertEquals(4, response.getJSONArray("datarows").getJSONArray(0).length());
     JSONArray firstRow = response.getJSONArray("datarows").getJSONArray(0);
@@ -98,7 +138,7 @@ public class PrometheusDataSourceCommandsIT extends PPLIntegTestCase {
     verifySchema(response,
         schema("agg",  "double"),
         schema("span(@timestamp,15s)", "timestamp"),
-        schema("`handler`", "string"),
+        schema("handler", "string"),
         schema("job", "string"));
     Assertions.assertTrue(response.getInt("size") > 0);
     Assertions.assertEquals(4, response.getJSONArray("datarows").getJSONArray(0).length());
@@ -182,6 +222,46 @@ public class PrometheusDataSourceCommandsIT extends PPLIntegTestCase {
       Assertions.assertNotNull(firstRow.get(i));
       Assertions.assertTrue(StringUtils.isNotEmpty(firstRow.get(i).toString()));
     }
+  }
+
+
+  @Test
+  @SneakyThrows
+  public void testQueryRange() {
+    long currentTimestamp = new Date().getTime();
+    JSONObject response =
+        executeQuery("source=my_prometheus.query_range('prometheus_http_requests_total',"
+            + ((currentTimestamp/1000)-3600) + "," + currentTimestamp/1000 + ", " + "'14'" + ")" );
+    verifySchema(response,
+        schema(LABELS,  "struct"),
+        schema(VALUE, "array"),
+        schema(TIMESTAMP,  "array"));
+    Assertions.assertTrue(response.getInt("size") > 0);
+  }
+
+  @Test
+  public void explainQueryRange() throws Exception {
+    String expected = loadFromFile("expectedOutput/ppl/explain_query_range.json");
+    assertJsonEquals(
+        expected,
+        explainQueryToString("source = my_prometheus"
+            + ".query_range('prometheus_http_requests_total',1689281439,1689291439,14)")
+    );
+  }
+
+    @Test
+  public void testExplainForQueryExemplars() throws Exception {
+    String expected = loadFromFile("expectedOutput/ppl/explain_query_exemplars.json");
+    assertJsonEquals(
+        expected,
+        explainQueryToString("source = my_prometheus."
+            + "query_exemplars('app_ads_ad_requests_total',1689228292,1689232299)")
+    );
+  }
+
+  String loadFromFile(String filename) throws Exception {
+    URI uri = Resources.getResource(filename).toURI();
+    return new String(Files.readAllBytes(Paths.get(uri)));
   }
 
 }

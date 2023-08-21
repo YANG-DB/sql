@@ -6,7 +6,6 @@
 
 package org.opensearch.sql.ppl.parser;
 
-import static org.opensearch.sql.ast.dsl.AstDSL.qualifiedName;
 import static org.opensearch.sql.expression.function.BuiltinFunctionName.IS_NOT_NULL;
 import static org.opensearch.sql.expression.function.BuiltinFunctionName.IS_NULL;
 import static org.opensearch.sql.expression.function.BuiltinFunctionName.POSITION;
@@ -24,6 +23,7 @@ import static org.opensearch.sql.ppl.antlr.parser.OpenSearchPPLParser.EvalClause
 import static org.opensearch.sql.ppl.antlr.parser.OpenSearchPPLParser.EvalFunctionCallContext;
 import static org.opensearch.sql.ppl.antlr.parser.OpenSearchPPLParser.FieldExpressionContext;
 import static org.opensearch.sql.ppl.antlr.parser.OpenSearchPPLParser.IdentsAsQualifiedNameContext;
+import static org.opensearch.sql.ppl.antlr.parser.OpenSearchPPLParser.IdentsAsTableQualifiedNameContext;
 import static org.opensearch.sql.ppl.antlr.parser.OpenSearchPPLParser.IdentsAsWildcardQualifiedNameContext;
 import static org.opensearch.sql.ppl.antlr.parser.OpenSearchPPLParser.InExprContext;
 import static org.opensearch.sql.ppl.antlr.parser.OpenSearchPPLParser.IntegerLiteralContext;
@@ -50,6 +50,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.RuleContext;
 import org.opensearch.sql.ast.dsl.AstDSL;
@@ -180,7 +181,7 @@ public class AstExpressionBuilder extends OpenSearchPPLParserBaseVisitor<Unresol
   @Override
   public UnresolvedExpression visitSortField(SortFieldContext ctx) {
     return new Field(
-        qualifiedName(ctx.sortFieldExpression().fieldExpression().getText()),
+        visit(ctx.sortFieldExpression().fieldExpression().qualifiedName()),
         ArgumentFactory.getArgumentList(ctx)
     );
   }
@@ -280,8 +281,8 @@ public class AstExpressionBuilder extends OpenSearchPPLParserBaseVisitor<Unresol
 
   @Override
   public UnresolvedExpression visitTableSource(TableSourceContext ctx) {
-    if (ctx.getChild(0) instanceof IdentsAsQualifiedNameContext) {
-      return visitIdentifiers(((IdentsAsQualifiedNameContext) ctx.getChild(0)).ident());
+    if (ctx.getChild(0) instanceof IdentsAsTableQualifiedNameContext) {
+      return visitIdentsAsTableQualifiedName((IdentsAsTableQualifiedNameContext) ctx.getChild(0));
     } else {
       return visitIdentifiers(Arrays.asList(ctx));
     }
@@ -296,12 +297,74 @@ public class AstExpressionBuilder extends OpenSearchPPLParserBaseVisitor<Unresol
                     visitFunctionArg(ctx.functionArg(1))));
   }
 
+  @Override
+  public UnresolvedExpression visitExtractFunctionCall(
+          OpenSearchPPLParser.ExtractFunctionCallContext ctx) {
+    return new Function(
+            ctx.extractFunction().EXTRACT().toString(),
+            getExtractFunctionArguments(ctx));
+  }
+
+  private List<UnresolvedExpression> getExtractFunctionArguments(
+          OpenSearchPPLParser.ExtractFunctionCallContext ctx) {
+    List<UnresolvedExpression> args = Arrays.asList(
+            new Literal(ctx.extractFunction().datetimePart().getText(), DataType.STRING),
+            visitFunctionArg(ctx.extractFunction().functionArg())
+    );
+    return args;
+  }
+
+  @Override
+  public UnresolvedExpression visitGetFormatFunctionCall(
+          OpenSearchPPLParser.GetFormatFunctionCallContext ctx) {
+    return new Function(
+            ctx.getFormatFunction().GET_FORMAT().toString(),
+            getFormatFunctionArguments(ctx));
+  }
+
+  private List<UnresolvedExpression> getFormatFunctionArguments(
+          OpenSearchPPLParser.GetFormatFunctionCallContext ctx) {
+    List<UnresolvedExpression> args = Arrays.asList(
+            new Literal(ctx.getFormatFunction().getFormatType().getText(), DataType.STRING),
+            visitFunctionArg(ctx.getFormatFunction().functionArg())
+    );
+    return args;
+  }
+
+  @Override
+  public UnresolvedExpression visitTimestampFunctionCall(
+          OpenSearchPPLParser.TimestampFunctionCallContext ctx) {
+    return new Function(
+            ctx.timestampFunction().timestampFunctionName().getText(),
+            timestampFunctionArguments(ctx));
+  }
+
+  private List<UnresolvedExpression> timestampFunctionArguments(
+          OpenSearchPPLParser.TimestampFunctionCallContext ctx) {
+    List<UnresolvedExpression> args = Arrays.asList(
+            new Literal(
+                    ctx.timestampFunction().simpleDateTimePart().getText(),
+                    DataType.STRING),
+            visitFunctionArg(ctx.timestampFunction().firstArg),
+            visitFunctionArg(ctx.timestampFunction().secondArg)
+    );
+    return args;
+  }
+
   /**
    * Literal and value.
    */
   @Override
   public UnresolvedExpression visitIdentsAsQualifiedName(IdentsAsQualifiedNameContext ctx) {
     return visitIdentifiers(ctx.ident());
+  }
+
+  @Override
+  public UnresolvedExpression visitIdentsAsTableQualifiedName(
+      IdentsAsTableQualifiedNameContext ctx) {
+    return visitIdentifiers(
+        Stream.concat(Stream.of(ctx.tableIdent()), ctx.ident().stream())
+            .collect(Collectors.toList()));
   }
 
   @Override
