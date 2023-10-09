@@ -46,7 +46,8 @@ public class ShowDataSourcesCommandIT extends PPLIntegTestCase {
             "my_prometheus",
             DataSourceType.PROMETHEUS,
             ImmutableList.of(),
-            ImmutableMap.of("prometheus.uri", "http://localhost:9090"));
+            ImmutableMap.of("prometheus.uri", "http://localhost:9090"),
+            null);
     Request createRequest = getCreateDataSourceRequest(createDSM);
     Response response = client().performRequest(createRequest);
     Assert.assertEquals(201, response.getStatusLine().getStatusCode());
@@ -62,7 +63,7 @@ public class ShowDataSourcesCommandIT extends PPLIntegTestCase {
   @Test
   public void testShowDataSourcesCommands() throws IOException {
     JSONObject result = executeQuery("show datasources");
-    verifyDataRows(result, rows("my_prometheus", "PROMETHEUS"), rows("@opensearch", "OPENSEARCH"));
+    verifyDataRows(result, rows("my_prometheus", "PROMETHEUS"));
     verifyColumn(result, columnName("DATASOURCE_NAME"), columnName("CONNECTOR_TYPE"));
   }
 

@@ -15,7 +15,6 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.opensearch.sql.data.model.ExprBooleanValue;
 import org.opensearch.sql.data.model.ExprByteValue;
-import org.opensearch.sql.data.model.ExprDateValue;
 import org.opensearch.sql.data.model.ExprDoubleValue;
 import org.opensearch.sql.data.model.ExprFloatValue;
 import org.opensearch.sql.data.model.ExprIntegerValue;
@@ -81,12 +80,13 @@ public class DefaultSparkSqlFunctionResponseHandle implements SparkSqlFunctionRe
       } else if (type == ExprCoreType.FLOAT) {
         linkedHashMap.put(column.getName(), new ExprFloatValue(row.getFloat(column.getName())));
       } else if (type == ExprCoreType.DATE) {
-        linkedHashMap.put(column.getName(), new ExprDateValue(row.getString(column.getName())));
+        // TODO :: correct this to ExprTimestampValue
+        linkedHashMap.put(column.getName(), new ExprStringValue(row.getString(column.getName())));
       } else if (type == ExprCoreType.TIMESTAMP) {
         linkedHashMap.put(
             column.getName(), new ExprTimestampValue(row.getString(column.getName())));
       } else if (type == ExprCoreType.STRING) {
-        linkedHashMap.put(column.getName(), new ExprStringValue(row.getString(column.getName())));
+        linkedHashMap.put(column.getName(), new ExprStringValue(jsonString(row, column.getName())));
       } else {
         throw new RuntimeException("Result contains invalid data type");
       }
@@ -135,6 +135,10 @@ public class DefaultSparkSqlFunctionResponseHandle implements SparkSqlFunctionRe
       default:
         return ExprCoreType.UNKNOWN;
     }
+  }
+
+  private static String jsonString(JSONObject jsonObject, String key) {
+    return jsonObject.has(key) ? jsonObject.getString(key) : "";
   }
 
   @Override

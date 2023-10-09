@@ -199,12 +199,18 @@ public class AnalyzerTestBase {
                       ds.getName(),
                       ds.getConnectorType(),
                       Collections.emptyList(),
-                      ImmutableMap.of()))
+                      ImmutableMap.of(),
+                      null))
           .collect(Collectors.toSet());
     }
 
     @Override
     public DataSourceMetadata getDataSourceMetadata(String name) {
+      return null;
+    }
+
+    @Override
+    public DataSourceMetadata getRawDataSourceMetadata(String name) {
       return null;
     }
 

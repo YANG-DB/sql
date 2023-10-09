@@ -37,20 +37,6 @@ public class DatasourceValidationUtilsTest {
                 "http://localhost:9090", Collections.singletonList("192.168.0.0/8")));
   }
 
-  @SneakyThrows
-  @Test
-  public void testValidateHostWithInvalidDomain() {
-    IllegalArgumentException illegalArgumentException =
-        Assertions.assertThrows(
-            IllegalArgumentException.class,
-            () ->
-                DatasourceValidationUtils.validateHost(
-                    "http:://prometheus:9090", Collections.singletonList("127.0.0.0/8")));
-    Assertions.assertEquals(
-        "Invalid hostname in the uri: http:://prometheus:9090",
-        illegalArgumentException.getMessage());
-  }
-
   @Test
   public void testValidateLengthAndRequiredFieldsWithAbsentField() {
     HashMap<String, String> config = new HashMap<>();
@@ -62,7 +48,7 @@ public class DatasourceValidationUtilsTest {
                 DatasourceValidationUtils.validateLengthAndRequiredFields(
                     config, Set.of("s3.uri", "s3.auth.type")));
     Assertions.assertEquals(
-        "Missing [s3.auth.type] fields in the Prometheus connector properties.",
+        "Missing [s3.auth.type] fields in the connector properties.",
         illegalArgumentException.getMessage());
   }
 
@@ -77,7 +63,7 @@ public class DatasourceValidationUtilsTest {
                 DatasourceValidationUtils.validateLengthAndRequiredFields(
                     config, Set.of("s3.uri", "s3.auth.type")));
     Assertions.assertEquals(
-        "Missing [s3.auth.type] fields in the Prometheus connector properties.Fields "
+        "Missing [s3.auth.type] fields in the connector properties.Fields "
             + "[s3.uri] exceeds more than 1000 characters.",
         illegalArgumentException.getMessage());
   }

@@ -81,7 +81,7 @@ public class PrometheusStorageFactoryTest {
             IllegalArgumentException.class,
             () -> prometheusStorageFactory.getStorageEngine(properties));
     Assertions.assertEquals(
-        "Missing [prometheus.uri] fields " + "in the Prometheus connector properties.",
+        "Missing [prometheus.uri] fields " + "in the connector properties.",
         exception.getMessage());
   }
 
@@ -99,7 +99,7 @@ public class PrometheusStorageFactoryTest {
             IllegalArgumentException.class,
             () -> prometheusStorageFactory.getStorageEngine(properties));
     Assertions.assertEquals(
-        "Missing [prometheus.auth.region] fields in the " + "Prometheus connector properties.",
+        "Missing [prometheus.auth.region] fields in the connector properties.",
         exception.getMessage());
   }
 
@@ -118,7 +118,7 @@ public class PrometheusStorageFactoryTest {
             () -> prometheusStorageFactory.getStorageEngine(properties));
     Assertions.assertEquals(
         "Missing [prometheus.auth.region] fields in the "
-            + "Prometheus connector properties."
+            + "connector properties."
             + "Fields [prometheus.uri] exceeds more than 1000 characters.",
         exception.getMessage());
   }
@@ -207,50 +207,6 @@ public class PrometheusStorageFactoryTest {
 
     DataSource dataSource = new PrometheusStorageFactory(settings).createDataSource(metadata);
     Assertions.assertTrue(dataSource.getStorageEngine() instanceof PrometheusStorageEngine);
-  }
-
-  @Test
-  void createDataSourceWithInvalidHostname() {
-    HashMap<String, String> properties = new HashMap<>();
-    properties.put("prometheus.uri", "http://dummyprometheus:9090");
-    properties.put("prometheus.auth.type", "basicauth");
-    properties.put("prometheus.auth.username", "admin");
-    properties.put("prometheus.auth.password", "admin");
-
-    DataSourceMetadata metadata = new DataSourceMetadata();
-    metadata.setName("prometheus");
-    metadata.setConnector(DataSourceType.PROMETHEUS);
-    metadata.setProperties(properties);
-
-    PrometheusStorageFactory prometheusStorageFactory = new PrometheusStorageFactory(settings);
-    RuntimeException exception =
-        Assertions.assertThrows(
-            RuntimeException.class, () -> prometheusStorageFactory.createDataSource(metadata));
-    Assertions.assertTrue(
-        exception
-            .getMessage()
-            .contains("Invalid hostname in the uri: http://dummyprometheus:9090"));
-  }
-
-  @Test
-  void createDataSourceWithInvalidIp() {
-    HashMap<String, String> properties = new HashMap<>();
-    properties.put("prometheus.uri", "http://231.54.11.987:9090");
-    properties.put("prometheus.auth.type", "basicauth");
-    properties.put("prometheus.auth.username", "admin");
-    properties.put("prometheus.auth.password", "admin");
-
-    DataSourceMetadata metadata = new DataSourceMetadata();
-    metadata.setName("prometheus");
-    metadata.setConnector(DataSourceType.PROMETHEUS);
-    metadata.setProperties(properties);
-
-    PrometheusStorageFactory prometheusStorageFactory = new PrometheusStorageFactory(settings);
-    RuntimeException exception =
-        Assertions.assertThrows(
-            RuntimeException.class, () -> prometheusStorageFactory.createDataSource(metadata));
-    Assertions.assertTrue(
-        exception.getMessage().contains("Invalid hostname in the uri: http://231.54.11.987:9090"));
   }
 
   @Test
