@@ -5,10 +5,16 @@
 
 package org.opensearch.sql.datasources.storage;
 
+import static org.opensearch.sql.datasource.model.DataSourceStatus.ACTIVE;
 import static org.opensearch.sql.datasources.storage.OpenSearchDataSourceMetadataStorage.DATASOURCE_INDEX_NAME;
 
+import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializerProvider;
+import com.fasterxml.jackson.databind.module.SimpleModule;
+import com.fasterxml.jackson.databind.ser.std.StdSerializer;
+import java.io.IOException;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -40,10 +46,12 @@ import org.opensearch.index.engine.DocumentMissingException;
 import org.opensearch.index.engine.VersionConflictEngineException;
 import org.opensearch.search.SearchHit;
 import org.opensearch.search.SearchHits;
+import org.opensearch.sql.common.setting.Settings;
 import org.opensearch.sql.datasource.model.DataSourceMetadata;
 import org.opensearch.sql.datasource.model.DataSourceType;
 import org.opensearch.sql.datasources.encryptor.Encryptor;
 import org.opensearch.sql.datasources.exceptions.DataSourceNotFoundException;
+import org.opensearch.sql.opensearch.setting.OpenSearchSettings;
 
 @ExtendWith(MockitoExtension.class)
 public class OpenSearchDataSourceMetadataStorageTest {
@@ -57,6 +65,8 @@ public class OpenSearchDataSourceMetadataStorageTest {
   private ClusterService clusterService;
 
   @Mock private Encryptor encryptor;
+
+  @Mock private OpenSearchSettings openSearchSettings;
 
   @Mock(answer = Answers.RETURNS_DEEP_STUBS)
   private SearchResponse searchResponse;
@@ -75,6 +85,7 @@ public class OpenSearchDataSourceMetadataStorageTest {
   @SneakyThrows
   @Test
   public void testGetDataSourceMetadata() {
+    setDataSourcesEnabled(true);
     Mockito.when(clusterService.state().routingTable().hasIndex(DATASOURCE_INDEX_NAME))
         .thenReturn(true);
     Mockito.when(client.search(ArgumentMatchers.any())).thenReturn(searchResponseActionFuture);
@@ -105,7 +116,42 @@ public class OpenSearchDataSourceMetadataStorageTest {
 
   @SneakyThrows
   @Test
+  public void testGetOldDataSourceMetadata() {
+    setDataSourcesEnabled(true);
+    Mockito.when(clusterService.state().routingTable().hasIndex(DATASOURCE_INDEX_NAME))
+        .thenReturn(true);
+    Mockito.when(client.search(ArgumentMatchers.any())).thenReturn(searchResponseActionFuture);
+    Mockito.when(searchResponseActionFuture.actionGet()).thenReturn(searchResponse);
+    Mockito.when(searchResponse.status()).thenReturn(RestStatus.OK);
+    Mockito.when(searchResponse.getHits())
+        .thenReturn(
+            new SearchHits(
+                new SearchHit[] {searchHit}, new TotalHits(21, TotalHits.Relation.EQUAL_TO), 1.0F));
+    Mockito.when(searchHit.getSourceAsString())
+        .thenReturn(getOldDataSourceMetadataStringWithOutStatusEnum());
+    Mockito.when(encryptor.decrypt("password")).thenReturn("password");
+    Mockito.when(encryptor.decrypt("username")).thenReturn("username");
+
+    Optional<DataSourceMetadata> dataSourceMetadataOptional =
+        openSearchDataSourceMetadataStorage.getDataSourceMetadata(TEST_DATASOURCE_INDEX_NAME);
+
+    Assertions.assertFalse(dataSourceMetadataOptional.isEmpty());
+    DataSourceMetadata dataSourceMetadata = dataSourceMetadataOptional.get();
+    Assertions.assertEquals(TEST_DATASOURCE_INDEX_NAME, dataSourceMetadata.getName());
+    Assertions.assertEquals(DataSourceType.PROMETHEUS, dataSourceMetadata.getConnector());
+    Assertions.assertEquals(
+        "password", dataSourceMetadata.getProperties().get("prometheus.auth.password"));
+    Assertions.assertEquals(
+        "username", dataSourceMetadata.getProperties().get("prometheus.auth.username"));
+    Assertions.assertEquals(
+        "basicauth", dataSourceMetadata.getProperties().get("prometheus.auth.type"));
+    Assertions.assertEquals(ACTIVE, dataSourceMetadata.getStatus());
+  }
+
+  @SneakyThrows
+  @Test
   public void testGetDataSourceMetadataWith404SearchResponse() {
+    setDataSourcesEnabled(true);
     Mockito.when(clusterService.state().routingTable().hasIndex(DATASOURCE_INDEX_NAME))
         .thenReturn(true);
     Mockito.when(client.search(ArgumentMatchers.any())).thenReturn(searchResponseActionFuture);
@@ -126,6 +172,7 @@ public class OpenSearchDataSourceMetadataStorageTest {
   @SneakyThrows
   @Test
   public void testGetDataSourceMetadataWithParsingFailed() {
+    setDataSourcesEnabled(true);
     Mockito.when(clusterService.state().routingTable().hasIndex(DATASOURCE_INDEX_NAME))
         .thenReturn(true);
     Mockito.when(client.search(ArgumentMatchers.any())).thenReturn(searchResponseActionFuture);
@@ -146,6 +193,7 @@ public class OpenSearchDataSourceMetadataStorageTest {
   @SneakyThrows
   @Test
   public void testGetDataSourceMetadataWithAWSSigV4() {
+    setDataSourcesEnabled(true);
     Mockito.when(clusterService.state().routingTable().hasIndex(DATASOURCE_INDEX_NAME))
         .thenReturn(true);
     Mockito.when(client.search(ArgumentMatchers.any())).thenReturn(searchResponseActionFuture);
@@ -177,6 +225,7 @@ public class OpenSearchDataSourceMetadataStorageTest {
   @SneakyThrows
   @Test
   public void testGetDataSourceMetadataWithBasicAuth() {
+    setDataSourcesEnabled(true);
     Mockito.when(clusterService.state().routingTable().hasIndex(DATASOURCE_INDEX_NAME))
         .thenReturn(true);
     Mockito.when(client.search(ArgumentMatchers.any())).thenReturn(searchResponseActionFuture);
@@ -209,6 +258,7 @@ public class OpenSearchDataSourceMetadataStorageTest {
   @SneakyThrows
   @Test
   public void testGetDataSourceMetadataList() {
+    setDataSourcesEnabled(true);
     Mockito.when(clusterService.state().routingTable().hasIndex(DATASOURCE_INDEX_NAME))
         .thenReturn(true);
     Mockito.when(client.search(ArgumentMatchers.any())).thenReturn(searchResponseActionFuture);
@@ -233,6 +283,7 @@ public class OpenSearchDataSourceMetadataStorageTest {
   @SneakyThrows
   @Test
   public void testGetDataSourceMetadataListWithNoIndex() {
+    setDataSourcesEnabled(true);
     Mockito.when(clusterService.state().routingTable().hasIndex(DATASOURCE_INDEX_NAME))
         .thenReturn(Boolean.FALSE);
     Mockito.when(client.admin().indices().create(ArgumentMatchers.any()))
@@ -250,6 +301,7 @@ public class OpenSearchDataSourceMetadataStorageTest {
   @SneakyThrows
   @Test
   public void testGetDataSourceMetadataWithNoIndex() {
+    setDataSourcesEnabled(true);
     Mockito.when(clusterService.state().routingTable().hasIndex(DATASOURCE_INDEX_NAME))
         .thenReturn(Boolean.FALSE);
     Mockito.when(client.admin().indices().create(ArgumentMatchers.any()))
@@ -266,6 +318,7 @@ public class OpenSearchDataSourceMetadataStorageTest {
 
   @Test
   public void testCreateDataSourceMetadata() {
+    setDataSourcesEnabled(true);
 
     Mockito.when(clusterService.state().routingTable().hasIndex(DATASOURCE_INDEX_NAME))
         .thenReturn(Boolean.FALSE);
@@ -291,6 +344,7 @@ public class OpenSearchDataSourceMetadataStorageTest {
 
   @Test
   public void testCreateDataSourceMetadataWithOutCreatingIndex() {
+    setDataSourcesEnabled(true);
     Mockito.when(clusterService.state().routingTable().hasIndex(DATASOURCE_INDEX_NAME))
         .thenReturn(Boolean.TRUE);
     Mockito.when(encryptor.encrypt("secret_key")).thenReturn("secret_key");
@@ -311,6 +365,7 @@ public class OpenSearchDataSourceMetadataStorageTest {
 
   @Test
   public void testCreateDataSourceMetadataFailedWithNotFoundResponse() {
+    setDataSourcesEnabled(true);
 
     Mockito.when(clusterService.state().routingTable().hasIndex(DATASOURCE_INDEX_NAME))
         .thenReturn(Boolean.FALSE);
@@ -344,6 +399,7 @@ public class OpenSearchDataSourceMetadataStorageTest {
 
   @Test
   public void testCreateDataSourceMetadataWithVersionConflict() {
+    setDataSourcesEnabled(true);
 
     Mockito.when(clusterService.state().routingTable().hasIndex(DATASOURCE_INDEX_NAME))
         .thenReturn(Boolean.FALSE);
@@ -374,6 +430,7 @@ public class OpenSearchDataSourceMetadataStorageTest {
 
   @Test
   public void testCreateDataSourceMetadataWithException() {
+    setDataSourcesEnabled(true);
 
     Mockito.when(clusterService.state().routingTable().hasIndex(DATASOURCE_INDEX_NAME))
         .thenReturn(Boolean.FALSE);
@@ -405,6 +462,7 @@ public class OpenSearchDataSourceMetadataStorageTest {
 
   @Test
   public void testCreateDataSourceMetadataWithIndexCreationFailed() {
+    setDataSourcesEnabled(true);
 
     Mockito.when(clusterService.state().routingTable().hasIndex(DATASOURCE_INDEX_NAME))
         .thenReturn(Boolean.FALSE);
@@ -435,6 +493,7 @@ public class OpenSearchDataSourceMetadataStorageTest {
 
   @Test
   public void testUpdateDataSourceMetadata() {
+    setDataSourcesEnabled(true);
     Mockito.when(encryptor.encrypt("secret_key")).thenReturn("secret_key");
     Mockito.when(encryptor.encrypt("access_key")).thenReturn("access_key");
     Mockito.when(client.update(ArgumentMatchers.any())).thenReturn(updateResponseActionFuture);
@@ -453,6 +512,7 @@ public class OpenSearchDataSourceMetadataStorageTest {
 
   @Test
   public void testUpdateDataSourceMetadataWithNOOP() {
+    setDataSourcesEnabled(true);
     Mockito.when(encryptor.encrypt("secret_key")).thenReturn("secret_key");
     Mockito.when(encryptor.encrypt("access_key")).thenReturn("access_key");
     Mockito.when(client.update(ArgumentMatchers.any())).thenReturn(updateResponseActionFuture);
@@ -471,6 +531,7 @@ public class OpenSearchDataSourceMetadataStorageTest {
 
   @Test
   public void testUpdateDataSourceMetadataWithNotFoundResult() {
+    setDataSourcesEnabled(true);
     Mockito.when(encryptor.encrypt("secret_key")).thenReturn("secret_key");
     Mockito.when(encryptor.encrypt("access_key")).thenReturn("access_key");
     Mockito.when(client.update(ArgumentMatchers.any())).thenReturn(updateResponseActionFuture);
@@ -497,12 +558,13 @@ public class OpenSearchDataSourceMetadataStorageTest {
 
   @Test
   public void testUpdateDataSourceMetadataWithDocumentMissingException() {
+    setDataSourcesEnabled(true);
     Mockito.when(encryptor.encrypt("secret_key")).thenReturn("secret_key");
     Mockito.when(encryptor.encrypt("access_key")).thenReturn("access_key");
     Mockito.when(client.update(ArgumentMatchers.any()))
         .thenThrow(new DocumentMissingException(ShardId.fromString("[2][2]"), "testDS"));
-    DataSourceMetadata dataSourceMetadata = getDataSourceMetadata();
-    dataSourceMetadata.setName("testDS");
+    DataSourceMetadata dataSourceMetadata =
+        new DataSourceMetadata.Builder(getDataSourceMetadata()).setName("testDS").build();
 
     DataSourceNotFoundException dataSourceNotFoundException =
         Assertions.assertThrows(
@@ -522,12 +584,13 @@ public class OpenSearchDataSourceMetadataStorageTest {
 
   @Test
   public void testUpdateDataSourceMetadataWithRuntimeException() {
+    setDataSourcesEnabled(true);
     Mockito.when(encryptor.encrypt("secret_key")).thenReturn("secret_key");
     Mockito.when(encryptor.encrypt("access_key")).thenReturn("access_key");
     Mockito.when(client.update(ArgumentMatchers.any()))
         .thenThrow(new RuntimeException("error message"));
-    DataSourceMetadata dataSourceMetadata = getDataSourceMetadata();
-    dataSourceMetadata.setName("testDS");
+    DataSourceMetadata dataSourceMetadata =
+        new DataSourceMetadata.Builder(getDataSourceMetadata()).setName("testDS").build();
 
     RuntimeException runtimeException =
         Assertions.assertThrows(
@@ -547,6 +610,7 @@ public class OpenSearchDataSourceMetadataStorageTest {
 
   @Test
   public void testDeleteDataSourceMetadata() {
+    setDataSourcesEnabled(true);
     Mockito.when(client.delete(ArgumentMatchers.any())).thenReturn(deleteResponseActionFuture);
     Mockito.when(deleteResponseActionFuture.actionGet()).thenReturn(deleteResponse);
     Mockito.when(deleteResponse.getResult()).thenReturn(DocWriteResponse.Result.DELETED);
@@ -561,6 +625,7 @@ public class OpenSearchDataSourceMetadataStorageTest {
 
   @Test
   public void testDeleteDataSourceMetadataWhichisAlreadyDeleted() {
+    setDataSourcesEnabled(true);
     Mockito.when(client.delete(ArgumentMatchers.any())).thenReturn(deleteResponseActionFuture);
     Mockito.when(deleteResponseActionFuture.actionGet()).thenReturn(deleteResponse);
     Mockito.when(deleteResponse.getResult()).thenReturn(DocWriteResponse.Result.NOT_FOUND);
@@ -580,6 +645,7 @@ public class OpenSearchDataSourceMetadataStorageTest {
 
   @Test
   public void testDeleteDataSourceMetadataWithUnexpectedResult() {
+    setDataSourcesEnabled(true);
     Mockito.when(client.delete(ArgumentMatchers.any())).thenReturn(deleteResponseActionFuture);
     Mockito.when(deleteResponseActionFuture.actionGet()).thenReturn(deleteResponse);
     Mockito.when(deleteResponse.getResult()).thenReturn(DocWriteResponse.Result.NOOP);
@@ -598,75 +664,155 @@ public class OpenSearchDataSourceMetadataStorageTest {
     Mockito.verify(client.threadPool().getThreadContext(), Mockito.times(1)).stashContext();
   }
 
+  @Test
+  public void testWhenDataSourcesAreDisabled() {
+    setDataSourcesEnabled(false);
+
+    Assertions.assertEquals(
+        Optional.empty(), this.openSearchDataSourceMetadataStorage.getDataSourceMetadata("dummy"));
+
+    Assertions.assertEquals(
+        Collections.emptyList(), this.openSearchDataSourceMetadataStorage.getDataSourceMetadata());
+
+    Assertions.assertThrows(
+        IllegalStateException.class,
+        () -> {
+          this.openSearchDataSourceMetadataStorage.createDataSourceMetadata(
+              getDataSourceMetadata());
+        },
+        "Data source management is disabled");
+
+    Assertions.assertThrows(
+        IllegalStateException.class,
+        () -> {
+          this.openSearchDataSourceMetadataStorage.updateDataSourceMetadata(
+              getDataSourceMetadata());
+        },
+        "Data source management is disabled");
+
+    Assertions.assertThrows(
+        IllegalStateException.class,
+        () -> {
+          this.openSearchDataSourceMetadataStorage.deleteDataSourceMetadata("dummy");
+        },
+        "Data source management is disabled");
+
+    Mockito.verify(clusterService.state().routingTable(), Mockito.times(0))
+        .hasIndex(DATASOURCE_INDEX_NAME);
+  }
+
   private String getBasicDataSourceMetadataString() throws JsonProcessingException {
-    DataSourceMetadata dataSourceMetadata = new DataSourceMetadata();
-    dataSourceMetadata.setName("testDS");
-    dataSourceMetadata.setConnector(DataSourceType.PROMETHEUS);
-    dataSourceMetadata.setAllowedRoles(Collections.singletonList("prometheus_access"));
     Map<String, String> properties = new HashMap<>();
     properties.put("prometheus.auth.type", "basicauth");
     properties.put("prometheus.auth.username", "username");
     properties.put("prometheus.auth.uri", "https://localhost:9090");
     properties.put("prometheus.auth.password", "password");
-    dataSourceMetadata.setProperties(properties);
-    ObjectMapper objectMapper = new ObjectMapper();
-    return objectMapper.writeValueAsString(dataSourceMetadata);
+    DataSourceMetadata dataSourceMetadata =
+        new DataSourceMetadata.Builder()
+            .setName("testDS")
+            .setProperties(properties)
+            .setConnector(DataSourceType.PROMETHEUS)
+            .setAllowedRoles(Collections.singletonList("prometheus_access"))
+            .build();
+    return serialize(dataSourceMetadata);
+  }
+
+  private String getOldDataSourceMetadataStringWithOutStatusEnum() {
+    return "{\"name\":\"testDS\",\"description\":\"\",\"connector\":\"PROMETHEUS\",\"allowedRoles\":[\"prometheus_access\"],\"properties\":{\"prometheus.auth.password\":\"password\",\"prometheus.auth.username\":\"username\",\"prometheus.auth.uri\":\"https://localhost:9090\",\"prometheus.auth.type\":\"basicauth\"},\"resultIndex\":\"query_execution_result_testds\"}";
   }
 
   private String getAWSSigv4DataSourceMetadataString() throws JsonProcessingException {
-    DataSourceMetadata dataSourceMetadata = new DataSourceMetadata();
-    dataSourceMetadata.setName("testDS");
-    dataSourceMetadata.setConnector(DataSourceType.PROMETHEUS);
-    dataSourceMetadata.setAllowedRoles(Collections.singletonList("prometheus_access"));
     Map<String, String> properties = new HashMap<>();
     properties.put("prometheus.auth.type", "awssigv4");
     properties.put("prometheus.auth.secret_key", "secret_key");
     properties.put("prometheus.auth.uri", "https://localhost:9090");
     properties.put("prometheus.auth.access_key", "access_key");
-    dataSourceMetadata.setProperties(properties);
-    ObjectMapper objectMapper = new ObjectMapper();
-    return objectMapper.writeValueAsString(dataSourceMetadata);
+    DataSourceMetadata dataSourceMetadata =
+        new DataSourceMetadata.Builder()
+            .setName("testDS")
+            .setProperties(properties)
+            .setConnector(DataSourceType.PROMETHEUS)
+            .setAllowedRoles(Collections.singletonList("prometheus_access"))
+            .build();
+    return serialize(dataSourceMetadata);
   }
 
   private String getDataSourceMetadataStringWithBasicAuthentication()
       throws JsonProcessingException {
-    DataSourceMetadata dataSourceMetadata = new DataSourceMetadata();
-    dataSourceMetadata.setName("testDS");
-    dataSourceMetadata.setConnector(DataSourceType.PROMETHEUS);
-    dataSourceMetadata.setAllowedRoles(Collections.singletonList("prometheus_access"));
     Map<String, String> properties = new HashMap<>();
     properties.put("prometheus.auth.uri", "https://localhost:9090");
     properties.put("prometheus.auth.type", "basicauth");
     properties.put("prometheus.auth.username", "username");
     properties.put("prometheus.auth.password", "password");
-    dataSourceMetadata.setProperties(properties);
-    ObjectMapper objectMapper = new ObjectMapper();
-    return objectMapper.writeValueAsString(dataSourceMetadata);
+    DataSourceMetadata dataSourceMetadata =
+        new DataSourceMetadata.Builder()
+            .setName("testDS")
+            .setProperties(properties)
+            .setConnector(DataSourceType.PROMETHEUS)
+            .setAllowedRoles(Collections.singletonList("prometheus_access"))
+            .build();
+    return serialize(dataSourceMetadata);
   }
 
   private String getDataSourceMetadataStringWithNoAuthentication() throws JsonProcessingException {
-    DataSourceMetadata dataSourceMetadata = new DataSourceMetadata();
-    dataSourceMetadata.setName("testDS");
-    dataSourceMetadata.setConnector(DataSourceType.PROMETHEUS);
-    dataSourceMetadata.setAllowedRoles(Collections.singletonList("prometheus_access"));
     Map<String, String> properties = new HashMap<>();
     properties.put("prometheus.auth.uri", "https://localhost:9090");
-    dataSourceMetadata.setProperties(properties);
-    ObjectMapper objectMapper = new ObjectMapper();
-    return objectMapper.writeValueAsString(dataSourceMetadata);
+    DataSourceMetadata dataSourceMetadata =
+        new DataSourceMetadata.Builder()
+            .setName("testDS")
+            .setProperties(properties)
+            .setConnector(DataSourceType.PROMETHEUS)
+            .setAllowedRoles(Collections.singletonList("prometheus_access"))
+            .build();
+    return serialize(dataSourceMetadata);
   }
 
   private DataSourceMetadata getDataSourceMetadata() {
-    DataSourceMetadata dataSourceMetadata = new DataSourceMetadata();
-    dataSourceMetadata.setName("testDS");
-    dataSourceMetadata.setConnector(DataSourceType.PROMETHEUS);
-    dataSourceMetadata.setAllowedRoles(Collections.singletonList("prometheus_access"));
     Map<String, String> properties = new HashMap<>();
     properties.put("prometheus.auth.type", "awssigv4");
     properties.put("prometheus.auth.secret_key", "secret_key");
     properties.put("prometheus.auth.uri", "https://localhost:9090");
     properties.put("prometheus.auth.access_key", "access_key");
-    dataSourceMetadata.setProperties(properties);
-    return dataSourceMetadata;
+    return new DataSourceMetadata.Builder()
+        .setName("testDS")
+        .setProperties(properties)
+        .setConnector(DataSourceType.PROMETHEUS)
+        .setAllowedRoles(Collections.singletonList("prometheus_access"))
+        .build();
+  }
+
+  private String serialize(DataSourceMetadata dataSourceMetadata) throws JsonProcessingException {
+    return getObjectMapper().writeValueAsString(dataSourceMetadata);
+  }
+
+  private ObjectMapper getObjectMapper() {
+    ObjectMapper mapper = new ObjectMapper();
+    addSerializerForDataSourceType(mapper);
+    return mapper;
+  }
+
+  /** It is needed to serialize DataSourceType as string. */
+  private void addSerializerForDataSourceType(ObjectMapper mapper) {
+    SimpleModule module = new SimpleModule();
+    module.addSerializer(DataSourceType.class, getDataSourceTypeSerializer());
+    mapper.registerModule(module);
+  }
+
+  private StdSerializer<DataSourceType> getDataSourceTypeSerializer() {
+    return new StdSerializer<>(DataSourceType.class) {
+      @Override
+      public void serialize(
+          DataSourceType dsType, JsonGenerator jsonGen, SerializerProvider provider)
+          throws IOException {
+        jsonGen.writeString(dsType.name());
+      }
+    };
+  }
+
+  private void setDataSourcesEnabled(boolean enabled) {
+    Mockito.when(
+            openSearchSettings.getSettingValue(
+                ArgumentMatchers.eq(Settings.Key.DATASOURCES_ENABLED)))
+        .thenReturn(enabled);
   }
 }

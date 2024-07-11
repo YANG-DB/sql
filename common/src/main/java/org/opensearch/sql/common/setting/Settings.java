@@ -33,6 +33,7 @@ public abstract class Settings {
     ENCYRPTION_MASTER_KEY("plugins.query.datasources.encryption.masterkey"),
     DATASOURCES_URI_HOSTS_DENY_LIST("plugins.query.datasources.uri.hosts.denylist"),
     DATASOURCES_LIMIT("plugins.query.datasources.limit"),
+    DATASOURCES_ENABLED("plugins.query.datasources.enabled"),
 
     METRICS_ROLLING_WINDOW("plugins.query.metrics.rolling_window"),
     METRICS_ROLLING_INTERVAL("plugins.query.metrics.rolling_interval"),
@@ -45,7 +46,12 @@ public abstract class Settings {
     AUTO_INDEX_MANAGEMENT_ENABLED(
         "plugins.query.executionengine.spark.auto_index_management.enabled"),
     SESSION_INACTIVITY_TIMEOUT_MILLIS(
-        "plugins.query.executionengine.spark.session_inactivity_timeout_millis");
+        "plugins.query.executionengine.spark.session_inactivity_timeout_millis"),
+
+    /** Async query Settings * */
+    ASYNC_QUERY_ENABLED("plugins.query.executionengine.async_query.enabled"),
+    STREAMING_JOB_HOUSEKEEPER_INTERVAL(
+        "plugins.query.executionengine.spark.streamingjobs.housekeeper.interval");
 
     @Getter private final String keyValue;
 

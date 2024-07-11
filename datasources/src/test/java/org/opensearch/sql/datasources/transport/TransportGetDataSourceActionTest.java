@@ -7,7 +7,6 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import java.lang.reflect.Type;
 import java.util.Collections;
@@ -34,6 +33,7 @@ import org.opensearch.sql.legacy.esdomain.LocalClusterState;
 import org.opensearch.sql.legacy.metrics.Metrics;
 import org.opensearch.sql.opensearch.setting.OpenSearchSettings;
 import org.opensearch.sql.protocol.response.format.JsonResponseFormatter;
+import org.opensearch.sql.utils.SerializeUtils;
 import org.opensearch.tasks.Task;
 import org.opensearch.transport.TransportService;
 
@@ -68,13 +68,16 @@ public class TransportGetDataSourceActionTest {
 
   @Test
   public void testDoExecute() {
-    DataSourceMetadata dataSourceMetadata = new DataSourceMetadata();
-    dataSourceMetadata.setName("test_datasource");
-    dataSourceMetadata.setConnector(DataSourceType.PROMETHEUS);
+    DataSourceMetadata dataSourceMetadata =
+        new DataSourceMetadata.Builder()
+            .setName("test_datasource")
+            .setConnector(DataSourceType.PROMETHEUS)
+            .build();
     GetDataSourceActionRequest request = new GetDataSourceActionRequest("test_datasource");
     when(dataSourceService.getDataSourceMetadata("test_datasource")).thenReturn(dataSourceMetadata);
 
     action.doExecute(task, request, actionListener);
+
     verify(dataSourceService, times(1)).getDataSourceMetadata("test_datasource");
     Mockito.verify(actionListener).onResponse(getDataSourceActionResponseArgumentCaptor.capture());
     GetDataSourceActionResponse getDataSourceActionResponse =
@@ -90,22 +93,25 @@ public class TransportGetDataSourceActionTest {
         dataSourceMetadataJsonResponseFormatter.format(dataSourceMetadata),
         getDataSourceActionResponse.getResult());
     DataSourceMetadata result =
-        new Gson().fromJson(getDataSourceActionResponse.getResult(), DataSourceMetadata.class);
+        SerializeUtils.buildGson()
+            .fromJson(getDataSourceActionResponse.getResult(), DataSourceMetadata.class);
     Assertions.assertEquals("test_datasource", result.getName());
     Assertions.assertEquals(DataSourceType.PROMETHEUS, result.getConnector());
   }
 
   @Test
   public void testDoExecuteForGetAllDataSources() {
-    DataSourceMetadata dataSourceMetadata = new DataSourceMetadata();
-    dataSourceMetadata.setName("test_datasource");
-    dataSourceMetadata.setConnector(DataSourceType.PROMETHEUS);
-
+    DataSourceMetadata dataSourceMetadata =
+        new DataSourceMetadata.Builder()
+            .setName("test_datasource")
+            .setConnector(DataSourceType.PROMETHEUS)
+            .build();
     GetDataSourceActionRequest request = new GetDataSourceActionRequest();
     when(dataSourceService.getDataSourceMetadata(false))
         .thenReturn(Collections.singleton(dataSourceMetadata));
 
     action.doExecute(task, request, actionListener);
+
     verify(dataSourceService, times(1)).getDataSourceMetadata(false);
     Mockito.verify(actionListener).onResponse(getDataSourceActionResponseArgumentCaptor.capture());
     GetDataSourceActionResponse getDataSourceActionResponse =
@@ -122,7 +128,7 @@ public class TransportGetDataSourceActionTest {
         dataSourceMetadataJsonResponseFormatter.format(Collections.singleton(dataSourceMetadata)),
         getDataSourceActionResponse.getResult());
     Set<DataSourceMetadata> result =
-        new Gson().fromJson(getDataSourceActionResponse.getResult(), setType);
+        SerializeUtils.buildGson().fromJson(getDataSourceActionResponse.getResult(), setType);
     DataSourceMetadata resultDataSource = result.iterator().next();
     Assertions.assertEquals("test_datasource", resultDataSource.getName());
     Assertions.assertEquals(DataSourceType.PROMETHEUS, resultDataSource.getConnector());
@@ -132,7 +138,9 @@ public class TransportGetDataSourceActionTest {
   public void testDoExecuteWithException() {
     doThrow(new RuntimeException("Error")).when(dataSourceService).getDataSourceMetadata("testDS");
     GetDataSourceActionRequest request = new GetDataSourceActionRequest("testDS");
+
     action.doExecute(task, request, actionListener);
+
     verify(dataSourceService, times(1)).getDataSourceMetadata("testDS");
     Mockito.verify(actionListener).onFailure(exceptionArgumentCaptor.capture());
     Exception exception = exceptionArgumentCaptor.getValue();

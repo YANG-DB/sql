@@ -8,8 +8,8 @@
 package org.opensearch.sql.datasources.rest;
 
 import static org.opensearch.core.rest.RestStatus.BAD_REQUEST;
+import static org.opensearch.core.rest.RestStatus.INTERNAL_SERVER_ERROR;
 import static org.opensearch.core.rest.RestStatus.NOT_FOUND;
-import static org.opensearch.core.rest.RestStatus.SERVICE_UNAVAILABLE;
 import static org.opensearch.rest.RestRequest.Method.*;
 
 import com.google.common.collect.ImmutableList;
@@ -17,9 +17,12 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import lombok.RequiredArgsConstructor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.opensearch.OpenSearchException;
+import org.opensearch.OpenSearchSecurityException;
+import org.opensearch.OpenSearchStatusException;
 import org.opensearch.client.node.NodeClient;
 import org.opensearch.core.action.ActionListener;
 import org.opensearch.core.rest.RestStatus;
@@ -27,6 +30,7 @@ import org.opensearch.rest.BaseRestHandler;
 import org.opensearch.rest.BytesRestResponse;
 import org.opensearch.rest.RestChannel;
 import org.opensearch.rest.RestRequest;
+import org.opensearch.sql.common.setting.Settings;
 import org.opensearch.sql.datasource.model.DataSourceMetadata;
 import org.opensearch.sql.datasources.exceptions.DataSourceNotFoundException;
 import org.opensearch.sql.datasources.exceptions.ErrorMessage;
@@ -36,13 +40,18 @@ import org.opensearch.sql.datasources.utils.Scheduler;
 import org.opensearch.sql.datasources.utils.XContentParserUtils;
 import org.opensearch.sql.legacy.metrics.MetricName;
 import org.opensearch.sql.legacy.utils.MetricUtils;
+import org.opensearch.sql.opensearch.setting.OpenSearchSettings;
+import org.opensearch.sql.opensearch.util.RestRequestUtil;
 
+@RequiredArgsConstructor
 public class RestDataSourceQueryAction extends BaseRestHandler {
 
   public static final String DATASOURCE_ACTIONS = "datasource_actions";
   public static final String BASE_DATASOURCE_ACTION_URL = "/_plugins/_query/_datasources";
 
   private static final Logger LOG = LogManager.getLogger(RestDataSourceQueryAction.class);
+
+  private final OpenSearchSettings settings;
 
   @Override
   public String getName() {
@@ -114,6 +123,9 @@ public class RestDataSourceQueryAction extends BaseRestHandler {
   @Override
   protected RestChannelConsumer prepareRequest(RestRequest restRequest, NodeClient nodeClient)
       throws IOException {
+    if (!enabled()) {
+      return disabledError(restRequest);
+    }
     switch (restRequest.method()) {
       case POST:
         return executePostRequest(restRequest, nodeClient);
@@ -282,6 +294,10 @@ public class RestDataSourceQueryAction extends BaseRestHandler {
     if (e instanceof DataSourceNotFoundException) {
       MetricUtils.incrementNumericalMetric(MetricName.DATASOURCE_FAILED_REQ_COUNT_CUS);
       reportError(restChannel, e, NOT_FOUND);
+    } else if (e instanceof OpenSearchSecurityException) {
+      MetricUtils.incrementNumericalMetric(MetricName.DATASOURCE_FAILED_REQ_COUNT_CUS);
+      OpenSearchSecurityException exception = (OpenSearchSecurityException) e;
+      reportError(restChannel, exception, exception.status());
     } else if (e instanceof OpenSearchException) {
       MetricUtils.incrementNumericalMetric(MetricName.DATASOURCE_FAILED_REQ_COUNT_SYS);
       OpenSearchException exception = (OpenSearchException) e;
@@ -293,7 +309,7 @@ public class RestDataSourceQueryAction extends BaseRestHandler {
         reportError(restChannel, e, BAD_REQUEST);
       } else {
         MetricUtils.incrementNumericalMetric(MetricName.DATASOURCE_FAILED_REQ_COUNT_SYS);
-        reportError(restChannel, e, SERVICE_UNAVAILABLE);
+        reportError(restChannel, e, INTERNAL_SERVER_ERROR);
       }
     }
   }
@@ -308,5 +324,23 @@ public class RestDataSourceQueryAction extends BaseRestHandler {
         // NPE is hard to differentiate but more likely caused by bad query
         || e instanceof IllegalArgumentException
         || e instanceof IllegalStateException;
+  }
+
+  private boolean enabled() {
+    return settings.getSettingValue(Settings.Key.DATASOURCES_ENABLED);
+  }
+
+  private RestChannelConsumer disabledError(RestRequest request) {
+
+    RestRequestUtil.consumeAllRequestParameters(request);
+
+    return channel -> {
+      reportError(
+          channel,
+          new OpenSearchStatusException(
+              String.format("%s setting is false", Settings.Key.DATASOURCES_ENABLED.getKeyValue()),
+              BAD_REQUEST),
+          BAD_REQUEST);
+    };
   }
 }
