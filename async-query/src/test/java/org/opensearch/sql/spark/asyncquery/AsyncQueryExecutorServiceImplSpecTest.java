@@ -49,7 +49,7 @@ public class AsyncQueryExecutorServiceImplSpecTest extends AsyncQueryExecutorSer
   @Disabled("batch query is unsupported")
   public void withoutSessionCreateAsyncQueryThenGetResultThenCancel() {
     LocalEMRSClient emrsClient = new LocalEMRSClient();
-    EMRServerlessClientFactory emrServerlessClientFactory = () -> emrsClient;
+    EMRServerlessClientFactory emrServerlessClientFactory = (accountId) -> emrsClient;
     AsyncQueryExecutorService asyncQueryExecutorService =
         createAsyncQueryExecutorService(emrServerlessClientFactory);
 
@@ -71,7 +71,8 @@ public class AsyncQueryExecutorServiceImplSpecTest extends AsyncQueryExecutorSer
     emrsClient.getJobRunResultCalled(1);
 
     // 3. cancel async query.
-    String cancelQueryId = asyncQueryExecutorService.cancelQuery(response.getQueryId());
+    String cancelQueryId =
+        asyncQueryExecutorService.cancelQuery(response.getQueryId(), asyncQueryRequestContext);
     assertEquals(response.getQueryId(), cancelQueryId);
     emrsClient.cancelJobRunCalled(1);
   }
@@ -79,7 +80,7 @@ public class AsyncQueryExecutorServiceImplSpecTest extends AsyncQueryExecutorSer
   @Disabled("batch query is unsupported")
   public void sessionLimitNotImpactBatchQuery() {
     LocalEMRSClient emrsClient = new LocalEMRSClient();
-    EMRServerlessClientFactory emrServerlessClientFactory = () -> emrsClient;
+    EMRServerlessClientFactory emrServerlessClientFactory = (accountId) -> emrsClient;
     AsyncQueryExecutorService asyncQueryExecutorService =
         createAsyncQueryExecutorService(emrServerlessClientFactory);
 
@@ -104,7 +105,7 @@ public class AsyncQueryExecutorServiceImplSpecTest extends AsyncQueryExecutorSer
   @Disabled("batch query is unsupported")
   public void createAsyncQueryCreateJobWithCorrectParameters() {
     LocalEMRSClient emrsClient = new LocalEMRSClient();
-    EMRServerlessClientFactory emrServerlessClientFactory = () -> emrsClient;
+    EMRServerlessClientFactory emrServerlessClientFactory = (accountId) -> emrsClient;
     AsyncQueryExecutorService asyncQueryExecutorService =
         createAsyncQueryExecutorService(emrServerlessClientFactory);
 
@@ -140,7 +141,7 @@ public class AsyncQueryExecutorServiceImplSpecTest extends AsyncQueryExecutorSer
   @Test
   public void withSessionCreateAsyncQueryThenGetResultThenCancel() {
     LocalEMRSClient emrsClient = new LocalEMRSClient();
-    EMRServerlessClientFactory emrServerlessClientFactory = () -> emrsClient;
+    EMRServerlessClientFactory emrServerlessClientFactory = (accountId) -> emrsClient;
     AsyncQueryExecutorService asyncQueryExecutorService =
         createAsyncQueryExecutorService(emrServerlessClientFactory);
 
@@ -163,14 +164,15 @@ public class AsyncQueryExecutorServiceImplSpecTest extends AsyncQueryExecutorSer
     assertEquals(StatementState.WAITING.getState(), asyncQueryResults.getStatus());
 
     // 3. cancel async query.
-    String cancelQueryId = asyncQueryExecutorService.cancelQuery(response.getQueryId());
+    String cancelQueryId =
+        asyncQueryExecutorService.cancelQuery(response.getQueryId(), asyncQueryRequestContext);
     assertEquals(response.getQueryId(), cancelQueryId);
   }
 
   @Test
   public void reuseSessionWhenCreateAsyncQuery() {
     LocalEMRSClient emrsClient = new LocalEMRSClient();
-    EMRServerlessClientFactory emrServerlessClientFactory = () -> emrsClient;
+    EMRServerlessClientFactory emrServerlessClientFactory = (accountId) -> emrsClient;
     AsyncQueryExecutorService asyncQueryExecutorService =
         createAsyncQueryExecutorService(emrServerlessClientFactory);
 
@@ -224,7 +226,7 @@ public class AsyncQueryExecutorServiceImplSpecTest extends AsyncQueryExecutorSer
   @Disabled("batch query is unsupported")
   public void batchQueryHasTimeout() {
     LocalEMRSClient emrsClient = new LocalEMRSClient();
-    EMRServerlessClientFactory emrServerlessClientFactory = () -> emrsClient;
+    EMRServerlessClientFactory emrServerlessClientFactory = (accountId) -> emrsClient;
     AsyncQueryExecutorService asyncQueryExecutorService =
         createAsyncQueryExecutorService(emrServerlessClientFactory);
 
@@ -240,7 +242,7 @@ public class AsyncQueryExecutorServiceImplSpecTest extends AsyncQueryExecutorSer
   @Test
   public void interactiveQueryNoTimeout() {
     LocalEMRSClient emrsClient = new LocalEMRSClient();
-    EMRServerlessClientFactory emrServerlessClientFactory = () -> emrsClient;
+    EMRServerlessClientFactory emrServerlessClientFactory = (accountId) -> emrsClient;
     AsyncQueryExecutorService asyncQueryExecutorService =
         createAsyncQueryExecutorService(emrServerlessClientFactory);
 
@@ -274,7 +276,7 @@ public class AsyncQueryExecutorServiceImplSpecTest extends AsyncQueryExecutorSer
             .setProperties(properties)
             .build());
     LocalEMRSClient emrsClient = new LocalEMRSClient();
-    EMRServerlessClientFactory emrServerlessClientFactory = () -> emrsClient;
+    EMRServerlessClientFactory emrServerlessClientFactory = (accountId) -> emrsClient;
     AsyncQueryExecutorService asyncQueryExecutorService =
         createAsyncQueryExecutorService(emrServerlessClientFactory);
 
@@ -295,7 +297,7 @@ public class AsyncQueryExecutorServiceImplSpecTest extends AsyncQueryExecutorSer
   @Test
   public void withSessionCreateAsyncQueryFailed() {
     LocalEMRSClient emrsClient = new LocalEMRSClient();
-    EMRServerlessClientFactory emrServerlessClientFactory = () -> emrsClient;
+    EMRServerlessClientFactory emrServerlessClientFactory = (accountId) -> emrsClient;
     AsyncQueryExecutorService asyncQueryExecutorService =
         createAsyncQueryExecutorService(emrServerlessClientFactory);
 
@@ -344,7 +346,7 @@ public class AsyncQueryExecutorServiceImplSpecTest extends AsyncQueryExecutorSer
   @Test
   public void createSessionMoreThanLimitFailed() {
     LocalEMRSClient emrsClient = new LocalEMRSClient();
-    EMRServerlessClientFactory emrServerlessClientFactory = () -> emrsClient;
+    EMRServerlessClientFactory emrServerlessClientFactory = (accountId) -> emrsClient;
     AsyncQueryExecutorService asyncQueryExecutorService =
         createAsyncQueryExecutorService(emrServerlessClientFactory);
 
@@ -376,7 +378,7 @@ public class AsyncQueryExecutorServiceImplSpecTest extends AsyncQueryExecutorSer
   @Test
   public void recreateSessionIfNotReady() {
     LocalEMRSClient emrsClient = new LocalEMRSClient();
-    EMRServerlessClientFactory emrServerlessClientFactory = () -> emrsClient;
+    EMRServerlessClientFactory emrServerlessClientFactory = (accountId) -> emrsClient;
     AsyncQueryExecutorService asyncQueryExecutorService =
         createAsyncQueryExecutorService(emrServerlessClientFactory);
 
@@ -417,7 +419,7 @@ public class AsyncQueryExecutorServiceImplSpecTest extends AsyncQueryExecutorSer
   @Test
   public void submitQueryWithDifferentDataSourceSessionWillCreateNewSession() {
     LocalEMRSClient emrsClient = new LocalEMRSClient();
-    EMRServerlessClientFactory emrServerlessClientFactory = () -> emrsClient;
+    EMRServerlessClientFactory emrServerlessClientFactory = (accountId) -> emrsClient;
     AsyncQueryExecutorService asyncQueryExecutorService =
         createAsyncQueryExecutorService(emrServerlessClientFactory);
 
@@ -465,7 +467,7 @@ public class AsyncQueryExecutorServiceImplSpecTest extends AsyncQueryExecutorSer
   @Test
   public void recreateSessionIfStale() {
     LocalEMRSClient emrsClient = new LocalEMRSClient();
-    EMRServerlessClientFactory emrServerlessClientFactory = () -> emrsClient;
+    EMRServerlessClientFactory emrServerlessClientFactory = (accountId) -> emrsClient;
     AsyncQueryExecutorService asyncQueryExecutorService =
         createAsyncQueryExecutorService(emrServerlessClientFactory);
 
@@ -523,7 +525,7 @@ public class AsyncQueryExecutorServiceImplSpecTest extends AsyncQueryExecutorSer
   @Test
   public void submitQueryInInvalidSessionWillCreateNewSession() {
     LocalEMRSClient emrsClient = new LocalEMRSClient();
-    EMRServerlessClientFactory emrServerlessClientFactory = () -> emrsClient;
+    EMRServerlessClientFactory emrServerlessClientFactory = (accountId) -> emrsClient;
     AsyncQueryExecutorService asyncQueryExecutorService =
         createAsyncQueryExecutorService(emrServerlessClientFactory);
 
@@ -561,7 +563,7 @@ public class AsyncQueryExecutorServiceImplSpecTest extends AsyncQueryExecutorSer
             .build());
 
     LocalEMRSClient emrsClient = new LocalEMRSClient();
-    EMRServerlessClientFactory emrServerlessClientFactory = () -> emrsClient;
+    EMRServerlessClientFactory emrServerlessClientFactory = (accountId) -> emrsClient;
     AsyncQueryExecutorService asyncQueryExecutorService =
         createAsyncQueryExecutorService(emrServerlessClientFactory);
 
@@ -583,7 +585,7 @@ public class AsyncQueryExecutorServiceImplSpecTest extends AsyncQueryExecutorSer
   @Test
   public void concurrentSessionLimitIsDomainLevel() {
     LocalEMRSClient emrsClient = new LocalEMRSClient();
-    EMRServerlessClientFactory emrServerlessClientFactory = () -> emrsClient;
+    EMRServerlessClientFactory emrServerlessClientFactory = (accountId) -> emrsClient;
     AsyncQueryExecutorService asyncQueryExecutorService =
         createAsyncQueryExecutorService(emrServerlessClientFactory);
 
@@ -612,7 +614,7 @@ public class AsyncQueryExecutorServiceImplSpecTest extends AsyncQueryExecutorSer
   @Test
   public void testDatasourceDisabled() {
     LocalEMRSClient emrsClient = new LocalEMRSClient();
-    EMRServerlessClientFactory emrServerlessClientFactory = () -> emrsClient;
+    EMRServerlessClientFactory emrServerlessClientFactory = (accountId) -> emrsClient;
     AsyncQueryExecutorService asyncQueryExecutorService =
         createAsyncQueryExecutorService(emrServerlessClientFactory);
 

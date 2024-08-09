@@ -33,7 +33,6 @@ import org.opensearch.sql.spark.asyncquery.exceptions.AsyncQueryNotFoundExceptio
 import org.opensearch.sql.spark.asyncquery.model.AsyncQueryExecutionResponse;
 import org.opensearch.sql.spark.asyncquery.model.AsyncQueryJobMetadata;
 import org.opensearch.sql.spark.asyncquery.model.AsyncQueryRequestContext;
-import org.opensearch.sql.spark.asyncquery.model.SparkSubmitParameters;
 import org.opensearch.sql.spark.config.SparkExecutionEngineConfig;
 import org.opensearch.sql.spark.config.SparkExecutionEngineConfigSupplier;
 import org.opensearch.sql.spark.config.SparkSubmitParameterModifier;
@@ -115,9 +114,7 @@ public class AsyncQueryExecutorServiceImplTest {
   @Test
   void testCreateAsyncQueryWithExtraSparkSubmitParameter() {
     SparkSubmitParameterModifier modifier =
-        (SparkSubmitParameters parameters) -> {
-          parameters.setExtraParameters("--conf spark.dynamicAllocation.enabled=false");
-        };
+        (builder) -> builder.extraParameters("--conf spark.dynamicAllocation.enabled=false");
     when(sparkExecutionEngineConfigSupplier.getSparkExecutionEngineConfig(any()))
         .thenReturn(
             SparkExecutionEngineConfig.builder()
@@ -209,7 +206,8 @@ public class AsyncQueryExecutorServiceImplTest {
 
     AsyncQueryNotFoundException asyncQueryNotFoundException =
         Assertions.assertThrows(
-            AsyncQueryNotFoundException.class, () -> jobExecutorService.cancelQuery(EMR_JOB_ID));
+            AsyncQueryNotFoundException.class,
+            () -> jobExecutorService.cancelQuery(EMR_JOB_ID, asyncQueryRequestContext));
 
     Assertions.assertEquals(
         "QueryId: " + EMR_JOB_ID + " not found", asyncQueryNotFoundException.getMessage());
@@ -221,9 +219,10 @@ public class AsyncQueryExecutorServiceImplTest {
   void testCancelJob() {
     when(asyncQueryJobMetadataStorageService.getJobMetadata(EMR_JOB_ID))
         .thenReturn(Optional.of(getAsyncQueryJobMetadata()));
-    when(sparkQueryDispatcher.cancelJob(getAsyncQueryJobMetadata())).thenReturn(EMR_JOB_ID);
+    when(sparkQueryDispatcher.cancelJob(getAsyncQueryJobMetadata(), asyncQueryRequestContext))
+        .thenReturn(EMR_JOB_ID);
 
-    String jobId = jobExecutorService.cancelQuery(EMR_JOB_ID);
+    String jobId = jobExecutorService.cancelQuery(EMR_JOB_ID, asyncQueryRequestContext);
 
     Assertions.assertEquals(EMR_JOB_ID, jobId);
     verifyNoInteractions(sparkExecutionEngineConfigSupplier);

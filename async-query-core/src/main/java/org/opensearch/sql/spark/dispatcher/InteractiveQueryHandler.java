@@ -16,7 +16,7 @@ import lombok.RequiredArgsConstructor;
 import org.json.JSONObject;
 import org.opensearch.sql.datasource.model.DataSourceMetadata;
 import org.opensearch.sql.spark.asyncquery.model.AsyncQueryJobMetadata;
-import org.opensearch.sql.spark.asyncquery.model.SparkSubmitParameters;
+import org.opensearch.sql.spark.asyncquery.model.AsyncQueryRequestContext;
 import org.opensearch.sql.spark.dispatcher.model.DispatchQueryContext;
 import org.opensearch.sql.spark.dispatcher.model.DispatchQueryRequest;
 import org.opensearch.sql.spark.dispatcher.model.DispatchQueryResponse;
@@ -32,6 +32,7 @@ import org.opensearch.sql.spark.leasemanager.LeaseManager;
 import org.opensearch.sql.spark.leasemanager.model.LeaseRequest;
 import org.opensearch.sql.spark.metrics.EmrMetrics;
 import org.opensearch.sql.spark.metrics.MetricsService;
+import org.opensearch.sql.spark.parameter.SparkSubmitParametersBuilderProvider;
 import org.opensearch.sql.spark.response.JobExecutionResponseReader;
 
 /**
@@ -46,6 +47,7 @@ public class InteractiveQueryHandler extends AsyncQueryHandler {
   private final JobExecutionResponseReader jobExecutionResponseReader;
   private final LeaseManager leaseManager;
   private final MetricsService metricsService;
+  protected final SparkSubmitParametersBuilderProvider sparkSubmitParametersBuilderProvider;
 
   @Override
   protected JSONObject getResponseFromResultIndex(AsyncQueryJobMetadata asyncQueryJobMetadata) {
@@ -70,7 +72,9 @@ public class InteractiveQueryHandler extends AsyncQueryHandler {
   }
 
   @Override
-  public String cancelJob(AsyncQueryJobMetadata asyncQueryJobMetadata) {
+  public String cancelJob(
+      AsyncQueryJobMetadata asyncQueryJobMetadata,
+      AsyncQueryRequestContext asyncQueryRequestContext) {
     String queryId = asyncQueryJobMetadata.getQueryId();
     getStatementByQueryId(
             asyncQueryJobMetadata.getSessionId(),
@@ -112,12 +116,16 @@ public class InteractiveQueryHandler extends AsyncQueryHandler {
                   dispatchQueryRequest.getAccountId(),
                   dispatchQueryRequest.getApplicationId(),
                   dispatchQueryRequest.getExecutionRoleARN(),
-                  SparkSubmitParameters.builder()
+                  sparkSubmitParametersBuilderProvider
+                      .getSparkSubmitParametersBuilder()
                       .className(FLINT_SESSION_CLASS_NAME)
                       .clusterName(clusterName)
-                      .dataSource(dataSourceMetadata)
-                      .build()
-                      .acceptModifier(dispatchQueryRequest.getSparkSubmitParameterModifier()),
+                      .dataSource(
+                          dataSourceMetadata,
+                          dispatchQueryRequest,
+                          context.getAsyncQueryRequestContext())
+                      .acceptModifier(dispatchQueryRequest.getSparkSubmitParameterModifier())
+                      .acceptComposers(dispatchQueryRequest, context.getAsyncQueryRequestContext()),
                   tags,
                   dataSourceMetadata.getResultIndex(),
                   dataSourceMetadata.getName()),

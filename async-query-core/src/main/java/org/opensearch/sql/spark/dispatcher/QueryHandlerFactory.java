@@ -13,6 +13,7 @@ import org.opensearch.sql.spark.flint.IndexDMLResultStorageService;
 import org.opensearch.sql.spark.flint.operation.FlintIndexOpFactory;
 import org.opensearch.sql.spark.leasemanager.LeaseManager;
 import org.opensearch.sql.spark.metrics.MetricsService;
+import org.opensearch.sql.spark.parameter.SparkSubmitParametersBuilderProvider;
 import org.opensearch.sql.spark.response.JobExecutionResponseReader;
 
 @RequiredArgsConstructor
@@ -26,36 +27,44 @@ public class QueryHandlerFactory {
   private final FlintIndexOpFactory flintIndexOpFactory;
   private final EMRServerlessClientFactory emrServerlessClientFactory;
   private final MetricsService metricsService;
+  protected final SparkSubmitParametersBuilderProvider sparkSubmitParametersBuilderProvider;
 
-  public RefreshQueryHandler getRefreshQueryHandler() {
+  public RefreshQueryHandler getRefreshQueryHandler(String accountId) {
     return new RefreshQueryHandler(
-        emrServerlessClientFactory.getClient(),
+        emrServerlessClientFactory.getClient(accountId),
         jobExecutionResponseReader,
         flintIndexMetadataService,
         leaseManager,
         flintIndexOpFactory,
-        metricsService);
+        metricsService,
+        sparkSubmitParametersBuilderProvider);
   }
 
-  public StreamingQueryHandler getStreamingQueryHandler() {
+  public StreamingQueryHandler getStreamingQueryHandler(String accountId) {
     return new StreamingQueryHandler(
-        emrServerlessClientFactory.getClient(),
+        emrServerlessClientFactory.getClient(accountId),
         jobExecutionResponseReader,
         leaseManager,
-        metricsService);
+        metricsService,
+        sparkSubmitParametersBuilderProvider);
   }
 
-  public BatchQueryHandler getBatchQueryHandler() {
+  public BatchQueryHandler getBatchQueryHandler(String accountId) {
     return new BatchQueryHandler(
-        emrServerlessClientFactory.getClient(),
+        emrServerlessClientFactory.getClient(accountId),
         jobExecutionResponseReader,
         leaseManager,
-        metricsService);
+        metricsService,
+        sparkSubmitParametersBuilderProvider);
   }
 
   public InteractiveQueryHandler getInteractiveQueryHandler() {
     return new InteractiveQueryHandler(
-        sessionManager, jobExecutionResponseReader, leaseManager, metricsService);
+        sessionManager,
+        jobExecutionResponseReader,
+        leaseManager,
+        metricsService,
+        sparkSubmitParametersBuilderProvider);
   }
 
   public IndexDMLHandler getIndexDMLHandler() {

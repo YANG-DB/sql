@@ -20,6 +20,7 @@ import static org.opensearch.sql.legacy.TestUtils.getDogs2IndexMapping;
 import static org.opensearch.sql.legacy.TestUtils.getDogs3IndexMapping;
 import static org.opensearch.sql.legacy.TestUtils.getEmployeeNestedTypeIndexMapping;
 import static org.opensearch.sql.legacy.TestUtils.getGameOfThronesIndexMapping;
+import static org.opensearch.sql.legacy.TestUtils.getGeopointIndexMapping;
 import static org.opensearch.sql.legacy.TestUtils.getJoinTypeIndexMapping;
 import static org.opensearch.sql.legacy.TestUtils.getLocationIndexMapping;
 import static org.opensearch.sql.legacy.TestUtils.getMappingFile;
@@ -244,12 +245,17 @@ public abstract class SQLIntegTestCase extends OpenSearchSQLRestTestCase {
   }
 
   protected String executeQuery(String query, String requestType) {
+    return executeQuery(query, requestType, Map.of());
+  }
+
+  protected String executeQuery(String query, String requestType, Map<String, String> params) {
     try {
       String endpoint = "/_plugins/_sql?format=" + requestType;
       String requestBody = makeRequest(query);
 
       Request sqlRequest = new Request("POST", endpoint);
       sqlRequest.setJsonEntity(requestBody);
+      sqlRequest.addParameters(params);
 
       Response response = client().performRequest(sqlRequest);
       Assert.assertEquals(200, response.getStatusLine().getStatusCode());
@@ -725,7 +731,12 @@ public abstract class SQLIntegTestCase extends OpenSearchSQLRestTestCase {
         TestsConstants.TEST_INDEX_NESTED_WITH_NULLS,
         "multi_nested",
         getNestedTypeIndexMapping(),
-        "src/test/resources/nested_with_nulls.json");
+        "src/test/resources/nested_with_nulls.json"),
+    GEOPOINTS(
+        TestsConstants.TEST_INDEX_GEOPOINT,
+        "dates",
+        getGeopointIndexMapping(),
+        "src/test/resources/geopoints.json");
 
     private final String name;
     private final String type;
