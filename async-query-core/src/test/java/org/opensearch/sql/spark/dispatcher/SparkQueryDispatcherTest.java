@@ -204,39 +204,6 @@ public class SparkQueryDispatcherTest {
   }
 
   @Test
-  void testDispatchSelectQueryWithLakeFormation() {
-    when(emrServerlessClientFactory.getClient(any())).thenReturn(emrServerlessClient);
-    HashMap<String, String> tags = new HashMap<>();
-    tags.put(DATASOURCE_TAG_KEY, MY_GLUE);
-    tags.put(CLUSTER_NAME_TAG_KEY, TEST_CLUSTER_NAME);
-    tags.put(JOB_TYPE_TAG_KEY, JobType.BATCH.getText());
-    String query = "select * from my_glue.default.http_logs";
-    String sparkSubmitParameters = constructExpectedSparkSubmitParameterString(query);
-    StartJobRequest expected =
-        new StartJobRequest(
-            "TEST_CLUSTER:batch",
-            null,
-            EMRS_APPLICATION_ID,
-            EMRS_EXECUTION_ROLE,
-            sparkSubmitParameters,
-            tags,
-            false,
-            "query_execution_result_my_glue");
-    when(emrServerlessClient.startJobRun(expected)).thenReturn(EMR_JOB_ID);
-    DataSourceMetadata dataSourceMetadata = constructMyGlueDataSourceMetadataWithLakeFormation();
-    when(dataSourceService.verifyDataSourceAccessAndGetRawMetadata(
-            MY_GLUE, asyncQueryRequestContext))
-        .thenReturn(dataSourceMetadata);
-
-    DispatchQueryResponse dispatchQueryResponse =
-        sparkQueryDispatcher.dispatch(getBaseDispatchQueryRequest(query), asyncQueryRequestContext);
-    verify(emrServerlessClient, times(1)).startJobRun(startJobRequestArgumentCaptor.capture());
-    Assertions.assertEquals(expected, startJobRequestArgumentCaptor.getValue());
-    Assertions.assertEquals(EMR_JOB_ID, dispatchQueryResponse.getJobId());
-    verifyNoInteractions(flintIndexMetadataService);
-  }
-
-  @Test
   void testDispatchSelectQueryWithBasicAuthIndexStoreDatasource() {
     when(emrServerlessClientFactory.getClient(any())).thenReturn(emrServerlessClient);
     HashMap<String, String> tags = new HashMap<>();
@@ -410,6 +377,7 @@ public class SparkQueryDispatcherTest {
     verify(emrServerlessClient, times(1)).startJobRun(startJobRequestArgumentCaptor.capture());
     Assertions.assertEquals(expected, startJobRequestArgumentCaptor.getValue());
     Assertions.assertEquals(EMR_JOB_ID, dispatchQueryResponse.getJobId());
+    Assertions.assertEquals(JobType.BATCH, dispatchQueryResponse.getJobType());
     verifyNoInteractions(flintIndexMetadataService);
   }
 
@@ -694,6 +662,7 @@ public class SparkQueryDispatcherTest {
     verify(emrServerlessClient, times(1)).startJobRun(startJobRequestArgumentCaptor.capture());
     Assertions.assertEquals(expected, startJobRequestArgumentCaptor.getValue());
     Assertions.assertEquals(EMR_JOB_ID, dispatchQueryResponse.getJobId());
+    Assertions.assertEquals(JobType.REFRESH, dispatchQueryResponse.getJobType());
     verifyNoInteractions(flintIndexMetadataService);
   }
 
@@ -864,12 +833,7 @@ public class SparkQueryDispatcherTest {
 
   @Test
   void testCancelJob() {
-    when(emrServerlessClientFactory.getClient(any())).thenReturn(emrServerlessClient);
-    when(emrServerlessClient.cancelJobRun(EMRS_APPLICATION_ID, EMR_JOB_ID, false))
-        .thenReturn(
-            new CancelJobRunResult()
-                .withJobRunId(EMR_JOB_ID)
-                .withApplicationId(EMRS_APPLICATION_ID));
+    givenCancelJobRunSucceed();
 
     String queryId =
         sparkQueryDispatcher.cancelJob(asyncQueryJobMetadata(), asyncQueryRequestContext);
@@ -880,7 +844,7 @@ public class SparkQueryDispatcherTest {
   @Test
   void testCancelQueryWithSession() {
     doReturn(Optional.of(session)).when(sessionManager).getSession(MOCK_SESSION_ID, MY_GLUE);
-    doReturn(Optional.of(statement)).when(session).get(any());
+    doReturn(Optional.of(statement)).when(session).get(any(), eq(asyncQueryRequestContext));
     doNothing().when(statement).cancel();
 
     String queryId =
@@ -930,17 +894,32 @@ public class SparkQueryDispatcherTest {
 
   @Test
   void testCancelQueryWithNoSessionId() {
+    givenCancelJobRunSucceed();
+
+    String queryId =
+        sparkQueryDispatcher.cancelJob(asyncQueryJobMetadata(), asyncQueryRequestContext);
+
+    Assertions.assertEquals(QUERY_ID, queryId);
+  }
+
+  @Test
+  void testCancelBatchJob() {
+    givenCancelJobRunSucceed();
+
+    String queryId =
+        sparkQueryDispatcher.cancelJob(
+            asyncQueryJobMetadata(JobType.BATCH), asyncQueryRequestContext);
+
+    Assertions.assertEquals(QUERY_ID, queryId);
+  }
+
+  private void givenCancelJobRunSucceed() {
     when(emrServerlessClientFactory.getClient(any())).thenReturn(emrServerlessClient);
     when(emrServerlessClient.cancelJobRun(EMRS_APPLICATION_ID, EMR_JOB_ID, false))
         .thenReturn(
             new CancelJobRunResult()
                 .withJobRunId(EMR_JOB_ID)
                 .withApplicationId(EMRS_APPLICATION_ID));
-
-    String queryId =
-        sparkQueryDispatcher.cancelJob(asyncQueryJobMetadata(), asyncQueryRequestContext);
-
-    Assertions.assertEquals(QUERY_ID, queryId);
   }
 
   @Test
@@ -952,7 +931,8 @@ public class SparkQueryDispatcherTest {
     when(jobExecutionResponseReader.getResultWithJobId(EMR_JOB_ID, null))
         .thenReturn(new JSONObject());
 
-    JSONObject result = sparkQueryDispatcher.getQueryResponse(asyncQueryJobMetadata());
+    JSONObject result =
+        sparkQueryDispatcher.getQueryResponse(asyncQueryJobMetadata(), asyncQueryRequestContext);
 
     Assertions.assertEquals("PENDING", result.get("status"));
   }
@@ -960,7 +940,7 @@ public class SparkQueryDispatcherTest {
   @Test
   void testGetQueryResponseWithSession() {
     doReturn(Optional.of(session)).when(sessionManager).getSession(MOCK_SESSION_ID, MY_GLUE);
-    doReturn(Optional.of(statement)).when(session).get(any());
+    doReturn(Optional.of(statement)).when(session).get(any(), eq(asyncQueryRequestContext));
     when(statement.getStatementModel().getError()).thenReturn("mock error");
     doReturn(StatementState.WAITING).when(statement).getStatementState();
     doReturn(new JSONObject())
@@ -969,7 +949,8 @@ public class SparkQueryDispatcherTest {
 
     JSONObject result =
         sparkQueryDispatcher.getQueryResponse(
-            asyncQueryJobMetadataWithSessionId(MOCK_STATEMENT_ID, MOCK_SESSION_ID));
+            asyncQueryJobMetadataWithSessionId(MOCK_STATEMENT_ID, MOCK_SESSION_ID),
+            asyncQueryRequestContext);
 
     verifyNoInteractions(emrServerlessClient);
     Assertions.assertEquals("waiting", result.get("status"));
@@ -987,7 +968,8 @@ public class SparkQueryDispatcherTest {
             IllegalArgumentException.class,
             () ->
                 sparkQueryDispatcher.getQueryResponse(
-                    asyncQueryJobMetadataWithSessionId(MOCK_STATEMENT_ID, MOCK_SESSION_ID)));
+                    asyncQueryJobMetadataWithSessionId(MOCK_STATEMENT_ID, MOCK_SESSION_ID),
+                    asyncQueryRequestContext));
 
     verifyNoInteractions(emrServerlessClient);
     Assertions.assertEquals("no session found. " + MOCK_SESSION_ID, exception.getMessage());
@@ -996,7 +978,7 @@ public class SparkQueryDispatcherTest {
   @Test
   void testGetQueryResponseWithStatementNotExist() {
     doReturn(Optional.of(session)).when(sessionManager).getSession(MOCK_SESSION_ID, MY_GLUE);
-    doReturn(Optional.empty()).when(session).get(any());
+    doReturn(Optional.empty()).when(session).get(any(), eq(asyncQueryRequestContext));
     doReturn(new JSONObject())
         .when(jobExecutionResponseReader)
         .getResultWithQueryId(eq(MOCK_STATEMENT_ID), any());
@@ -1006,7 +988,8 @@ public class SparkQueryDispatcherTest {
             IllegalArgumentException.class,
             () ->
                 sparkQueryDispatcher.getQueryResponse(
-                    asyncQueryJobMetadataWithSessionId(MOCK_STATEMENT_ID, MOCK_SESSION_ID)));
+                    asyncQueryJobMetadataWithSessionId(MOCK_STATEMENT_ID, MOCK_SESSION_ID),
+                    asyncQueryRequestContext));
 
     verifyNoInteractions(emrServerlessClient);
     Assertions.assertEquals(
@@ -1022,7 +1005,8 @@ public class SparkQueryDispatcherTest {
     queryResult.put(DATA_FIELD, resultMap);
     when(jobExecutionResponseReader.getResultWithJobId(EMR_JOB_ID, null)).thenReturn(queryResult);
 
-    JSONObject result = sparkQueryDispatcher.getQueryResponse(asyncQueryJobMetadata());
+    JSONObject result =
+        sparkQueryDispatcher.getQueryResponse(asyncQueryJobMetadata(), asyncQueryRequestContext);
 
     verify(jobExecutionResponseReader, times(1)).getResultWithJobId(EMR_JOB_ID, null);
     Assertions.assertEquals(
@@ -1085,7 +1069,6 @@ public class SparkQueryDispatcherTest {
         + getConfParam(
             "spark.hadoop.fs.s3.customAWSCredentialsProvider=com.amazonaws.emr.AssumeRoleAWSCredentialsProvider",
             "spark.hadoop.aws.catalog.credentials.provider.factory.class=com.amazonaws.glue.catalog.metastore.STSAssumeRoleSessionCredentialsProviderFactory",
-            "spark.jars=/usr/share/aws/iceberg/lib/iceberg-spark3-runtime.jar",
             "spark.jars.packages=org.opensearch:opensearch-spark-standalone_2.12:0.3.0-SNAPSHOT,org.opensearch:opensearch-spark-sql-application_2.12:0.3.0-SNAPSHOT,org.opensearch:opensearch-spark-ppl_2.12:0.3.0-SNAPSHOT",
             "spark.jars.repositories=https://aws.oss.sonatype.org/content/repositories/snapshots",
             "spark.emr-serverless.driverEnv.JAVA_HOME=/usr/lib/jvm/java-17-amazon-corretto.x86_64/",
@@ -1097,10 +1080,8 @@ public class SparkQueryDispatcherTest {
             "spark.datasource.flint.scheme=SCHEMA",
             "spark.datasource.flint.auth=basic",
             "spark.datasource.flint.customAWSCredentialsProvider=com.amazonaws.emr.AssumeRoleAWSCredentialsProvider",
-            "spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions,org.opensearch.flint.spark.FlintSparkExtensions,org.opensearch.flint.spark.FlintPPLSparkExtensions",
-            "spark.hadoop.hive.metastore.client.factory.class=com.amazonaws.glue.catalog.metastore.AWSGlueDataCatalogHiveClientFactory",
-            "spark.sql.catalog.spark_catalog=org.apache.iceberg.spark.SparkSessionCatalog",
-            "spark.sql.catalog.spark_catalog.catalog-impl=org.apache.iceberg.aws.glue.GlueCatalog")
+            "spark.sql.extensions=org.opensearch.flint.spark.FlintSparkExtensions,org.opensearch.flint.spark.FlintPPLSparkExtensions",
+            "spark.hadoop.hive.metastore.client.factory.class=com.amazonaws.glue.catalog.metastore.AWSGlueDataCatalogHiveClientFactory")
         + getConfParam("spark.flint.job.query=" + query)
         + (jobType != null ? getConfParam("spark.flint.job.type=" + jobType) : "")
         + getConfParam(
@@ -1149,25 +1130,6 @@ public class SparkQueryDispatcherTest {
         .build();
   }
 
-  private DataSourceMetadata constructMyGlueDataSourceMetadataWithLakeFormation() {
-
-    Map<String, String> properties = new HashMap<>();
-    properties.put("glue.auth.type", "iam_role");
-    properties.put(
-        "glue.auth.role_arn", "arn:aws:iam::924196221507:role/FlintOpensearchServiceRole");
-    properties.put(
-        "glue.indexstore.opensearch.uri",
-        "https://search-flint-dp-benchmark-cf5crj5mj2kfzvgwdeynkxnefy.eu-west-1.es.amazonaws.com");
-    properties.put("glue.indexstore.opensearch.auth", "awssigv4");
-    properties.put("glue.indexstore.opensearch.region", "eu-west-1");
-    properties.put("glue.lakeformation.enabled", "true");
-    return new DataSourceMetadata.Builder()
-        .setName(MY_GLUE)
-        .setConnector(DataSourceType.S3GLUE)
-        .setProperties(properties)
-        .build();
-  }
-
   private DataSourceMetadata constructPrometheusDataSourceType() {
     return new DataSourceMetadata.Builder()
         .setName("my_prometheus")
@@ -1204,11 +1166,16 @@ public class SparkQueryDispatcherTest {
   }
 
   private AsyncQueryJobMetadata asyncQueryJobMetadata() {
+    return asyncQueryJobMetadata(JobType.INTERACTIVE);
+  }
+
+  private AsyncQueryJobMetadata asyncQueryJobMetadata(JobType jobType) {
     return AsyncQueryJobMetadata.builder()
         .queryId(QUERY_ID)
         .applicationId(EMRS_APPLICATION_ID)
         .jobId(EMR_JOB_ID)
         .datasourceName(MY_GLUE)
+        .jobType(jobType)
         .build();
   }
 
