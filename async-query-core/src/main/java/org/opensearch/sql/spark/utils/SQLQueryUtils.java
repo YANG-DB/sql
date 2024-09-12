@@ -26,6 +26,7 @@ import org.opensearch.sql.spark.antlr.parser.FlintSparkSqlExtensionsBaseVisitor;
 import org.opensearch.sql.spark.antlr.parser.FlintSparkSqlExtensionsLexer;
 import org.opensearch.sql.spark.antlr.parser.FlintSparkSqlExtensionsParser;
 import org.opensearch.sql.spark.antlr.parser.FlintSparkSqlExtensionsParser.MaterializedViewQueryContext;
+import org.opensearch.sql.spark.antlr.parser.FlintSparkSqlExtensionsParser.RecoverIndexJobStatementContext;
 import org.opensearch.sql.spark.antlr.parser.SqlBaseLexer;
 import org.opensearch.sql.spark.antlr.parser.SqlBaseParser;
 import org.opensearch.sql.spark.antlr.parser.SqlBaseParser.IdentifierReferenceContext;
@@ -268,31 +269,6 @@ public class SQLQueryUtils {
     }
 
     @Override
-    public Void visitVacuumSkippingIndexStatement(
-        FlintSparkSqlExtensionsParser.VacuumSkippingIndexStatementContext ctx) {
-      indexQueryDetailsBuilder.indexQueryActionType(IndexQueryActionType.VACUUM);
-      indexQueryDetailsBuilder.indexType(FlintIndexType.SKIPPING);
-      return super.visitVacuumSkippingIndexStatement(ctx);
-    }
-
-    @Override
-    public Void visitVacuumCoveringIndexStatement(
-        FlintSparkSqlExtensionsParser.VacuumCoveringIndexStatementContext ctx) {
-      indexQueryDetailsBuilder.indexQueryActionType(IndexQueryActionType.VACUUM);
-      indexQueryDetailsBuilder.indexType(FlintIndexType.COVERING);
-      return super.visitVacuumCoveringIndexStatement(ctx);
-    }
-
-    @Override
-    public Void visitVacuumMaterializedViewStatement(
-        FlintSparkSqlExtensionsParser.VacuumMaterializedViewStatementContext ctx) {
-      indexQueryDetailsBuilder.indexQueryActionType(IndexQueryActionType.VACUUM);
-      indexQueryDetailsBuilder.indexType(FlintIndexType.MATERIALIZED_VIEW);
-      indexQueryDetailsBuilder.mvName(ctx.mvName.getText());
-      return super.visitVacuumMaterializedViewStatement(ctx);
-    }
-
-    @Override
     public Void visitDescribeCoveringIndexStatement(
         FlintSparkSqlExtensionsParser.DescribeCoveringIndexStatementContext ctx) {
       indexQueryDetailsBuilder.indexQueryActionType(IndexQueryActionType.DESCRIBE);
@@ -409,6 +385,12 @@ public class SQLQueryUtils {
       String query = ctx.start.getInputStream().getText(new Interval(a, b));
       indexQueryDetailsBuilder.mvQuery(query);
       return super.visitMaterializedViewQuery(ctx);
+    }
+
+    @Override
+    public Void visitRecoverIndexJobStatement(RecoverIndexJobStatementContext ctx) {
+      indexQueryDetailsBuilder.indexQueryActionType(IndexQueryActionType.RECOVER);
+      return super.visitRecoverIndexJobStatement(ctx);
     }
 
     private String propertyKey(FlintSparkSqlExtensionsParser.PropertyKeyContext key) {
