@@ -23,9 +23,13 @@ public abstract class Settings {
     SQL_SLOWLOG("plugins.sql.slowlog"),
     SQL_CURSOR_KEEP_ALIVE("plugins.sql.cursor.keep_alive"),
     SQL_DELETE_ENABLED("plugins.sql.delete.enabled"),
+    SQL_PAGINATION_API_SEARCH_AFTER("plugins.sql.pagination.api"),
 
     /** PPL Settings. */
     PPL_ENABLED("plugins.ppl.enabled"),
+
+    /** Query Settings. */
+    FIELD_TYPE_TOLERANCE("plugins.query.field_type_tolerance"),
 
     /** Common Settings for SQL and PPL. */
     QUERY_MEMORY_LIMIT("plugins.query.memory_limit"),

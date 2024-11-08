@@ -85,6 +85,10 @@ import org.opensearch.sql.spark.rest.model.CreateAsyncQueryRequest;
 import org.opensearch.sql.spark.rest.model.CreateAsyncQueryResponse;
 import org.opensearch.sql.spark.rest.model.LangType;
 import org.opensearch.sql.spark.scheduler.AsyncQueryScheduler;
+import org.opensearch.sql.spark.validator.DefaultGrammarElementValidator;
+import org.opensearch.sql.spark.validator.GrammarElementValidatorProvider;
+import org.opensearch.sql.spark.validator.S3GlueGrammarElementValidator;
+import org.opensearch.sql.spark.validator.SQLQueryValidator;
 
 /**
  * This tests async-query-core library end-to-end using mocked implementation of extension points.
@@ -175,9 +179,18 @@ public class AsyncQueryCoreIntegTest {
             emrServerlessClientFactory,
             metricsService,
             new SparkSubmitParametersBuilderProvider(collection));
+    SQLQueryValidator sqlQueryValidator =
+        new SQLQueryValidator(
+            new GrammarElementValidatorProvider(
+                ImmutableMap.of(DataSourceType.S3GLUE, new S3GlueGrammarElementValidator()),
+                new DefaultGrammarElementValidator()));
     SparkQueryDispatcher sparkQueryDispatcher =
         new SparkQueryDispatcher(
-            dataSourceService, sessionManager, queryHandlerFactory, queryIdProvider);
+            dataSourceService,
+            sessionManager,
+            queryHandlerFactory,
+            queryIdProvider,
+            sqlQueryValidator);
     asyncQueryExecutorService =
         new AsyncQueryExecutorServiceImpl(
             asyncQueryJobMetadataStorageService,
@@ -230,7 +243,7 @@ public class AsyncQueryCoreIntegTest {
     verifyCreateIndexDMLResultCalled();
     verifyStoreJobMetadataCalled(DML_QUERY_JOB_ID, QueryState.SUCCESS, JobType.BATCH);
 
-    verify(asyncQueryScheduler).unscheduleJob(indexName);
+    verify(asyncQueryScheduler).unscheduleJob(indexName, asyncQueryRequestContext);
   }
 
   @Test
@@ -318,8 +331,7 @@ public class AsyncQueryCoreIntegTest {
     FlintIndexOptions flintIndexOptions = flintIndexOptionsArgumentCaptor.getValue();
     assertFalse(flintIndexOptions.autoRefresh());
 
-    verify(asyncQueryScheduler).unscheduleJob(indexName);
-
+    verify(asyncQueryScheduler).unscheduleJob(indexName, asyncQueryRequestContext);
     verifyCreateIndexDMLResultCalled();
     verifyStoreJobMetadataCalled(DML_QUERY_JOB_ID, QueryState.SUCCESS, JobType.BATCH);
   }
@@ -440,7 +452,8 @@ public class AsyncQueryCoreIntegTest {
             .sessionId(SESSION_ID)
             .resultIndex(RESULT_INDEX));
     JSONObject result = getValidExecutionResponse();
-    when(jobExecutionResponseReader.getResultWithQueryId(QUERY_ID, RESULT_INDEX))
+    when(jobExecutionResponseReader.getResultWithQueryId(
+            QUERY_ID, RESULT_INDEX, asyncQueryRequestContext))
         .thenReturn(result);
 
     AsyncQueryExecutionResponse response =
@@ -459,7 +472,8 @@ public class AsyncQueryCoreIntegTest {
             .jobId(DROP_INDEX_JOB_ID)
             .resultIndex(RESULT_INDEX));
     JSONObject result = getValidExecutionResponse();
-    when(jobExecutionResponseReader.getResultWithQueryId(QUERY_ID, RESULT_INDEX))
+    when(jobExecutionResponseReader.getResultWithQueryId(
+            QUERY_ID, RESULT_INDEX, asyncQueryRequestContext))
         .thenReturn(result);
 
     AsyncQueryExecutionResponse response =
@@ -479,7 +493,18 @@ public class AsyncQueryCoreIntegTest {
             .jobType(JobType.BATCH)
             .resultIndex(RESULT_INDEX));
     JSONObject result = getValidExecutionResponse();
-    when(jobExecutionResponseReader.getResultWithJobId(JOB_ID, RESULT_INDEX)).thenReturn(result);
+    when(jobExecutionResponseReader.getResultFromResultIndex(
+            AsyncQueryJobMetadata.builder()
+                .applicationId(APPLICATION_ID)
+                .queryId(QUERY_ID)
+                .jobId(JOB_ID)
+                .datasourceName(DATASOURCE_NAME)
+                .resultIndex(RESULT_INDEX)
+                .jobType(JobType.BATCH)
+                .metadata(ImmutableMap.of())
+                .build(),
+            asyncQueryRequestContext))
+        .thenReturn(result);
 
     AsyncQueryExecutionResponse response =
         asyncQueryExecutorService.getAsyncQueryResults(QUERY_ID, asyncQueryRequestContext);

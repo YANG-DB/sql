@@ -42,6 +42,7 @@ import com.amazonaws.services.emrserverless.model.CancelJobRunResult;
 import com.amazonaws.services.emrserverless.model.GetJobRunResult;
 import com.amazonaws.services.emrserverless.model.JobRun;
 import com.amazonaws.services.emrserverless.model.JobRunState;
+import com.google.common.collect.ImmutableMap;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -88,6 +89,10 @@ import org.opensearch.sql.spark.parameter.SparkSubmitParametersBuilderProvider;
 import org.opensearch.sql.spark.response.JobExecutionResponseReader;
 import org.opensearch.sql.spark.rest.model.LangType;
 import org.opensearch.sql.spark.scheduler.AsyncQueryScheduler;
+import org.opensearch.sql.spark.validator.DefaultGrammarElementValidator;
+import org.opensearch.sql.spark.validator.GrammarElementValidatorProvider;
+import org.opensearch.sql.spark.validator.S3GlueGrammarElementValidator;
+import org.opensearch.sql.spark.validator.SQLQueryValidator;
 
 @ExtendWith(MockitoExtension.class)
 public class SparkQueryDispatcherTest {
@@ -111,6 +116,13 @@ public class SparkQueryDispatcherTest {
   @Mock private AsyncQueryRequestContext asyncQueryRequestContext;
   @Mock private MetricsService metricsService;
   @Mock private AsyncQueryScheduler asyncQueryScheduler;
+
+  private final SQLQueryValidator sqlQueryValidator =
+      new SQLQueryValidator(
+          new GrammarElementValidatorProvider(
+              ImmutableMap.of(DataSourceType.S3GLUE, new S3GlueGrammarElementValidator()),
+              new DefaultGrammarElementValidator()));
+
   private DataSourceSparkParameterComposer dataSourceSparkParameterComposer =
       (datasourceMetadata, sparkSubmitParameters, dispatchQueryRequest, context) -> {
         sparkSubmitParameters.setConfigItem(FLINT_INDEX_STORE_AUTH_KEY, "basic");
@@ -159,7 +171,11 @@ public class SparkQueryDispatcherTest {
             sparkSubmitParametersBuilderProvider);
     sparkQueryDispatcher =
         new SparkQueryDispatcher(
-            dataSourceService, sessionManager, queryHandlerFactory, queryIdProvider);
+            dataSourceService,
+            sessionManager,
+            queryHandlerFactory,
+            queryIdProvider,
+            sqlQueryValidator);
   }
 
   @Test
@@ -347,17 +363,10 @@ public class SparkQueryDispatcherTest {
                   sparkQueryDispatcher.dispatch(
                       getBaseDispatchQueryRequestBuilder(query).langType(LangType.SQL).build(),
                       asyncQueryRequestContext));
-      assertEquals(
-          "Query is not allowed: Creating user-defined functions is not allowed",
-          illegalArgumentException.getMessage());
+      assertEquals("CREATE FUNCTION is not allowed.", illegalArgumentException.getMessage());
       verifyNoInteractions(emrServerlessClient);
       verifyNoInteractions(flintIndexMetadataService);
     }
-  }
-
-  @Test
-  void testInvalidSQLQueryDispatchToSpark() {
-    testDispatchBatchQuery("myselect 1");
   }
 
   @Test
@@ -571,7 +580,11 @@ public class SparkQueryDispatcherTest {
     QueryHandlerFactory queryHandlerFactory = mock(QueryHandlerFactory.class);
     sparkQueryDispatcher =
         new SparkQueryDispatcher(
-            dataSourceService, sessionManager, queryHandlerFactory, queryIdProvider);
+            dataSourceService,
+            sessionManager,
+            queryHandlerFactory,
+            queryIdProvider,
+            sqlQueryValidator);
     String query =
         "ALTER INDEX elb_and_requestUri ON my_glue.default.http_logs WITH"
             + " (auto_refresh = false)";
@@ -597,7 +610,11 @@ public class SparkQueryDispatcherTest {
     QueryHandlerFactory queryHandlerFactory = mock(QueryHandlerFactory.class);
     sparkQueryDispatcher =
         new SparkQueryDispatcher(
-            dataSourceService, sessionManager, queryHandlerFactory, queryIdProvider);
+            dataSourceService,
+            sessionManager,
+            queryHandlerFactory,
+            queryIdProvider,
+            sqlQueryValidator);
     String query = "DROP INDEX elb_and_requestUri ON my_glue.default.http_logs";
     DataSourceMetadata dataSourceMetadata = constructMyGlueDataSourceMetadata();
     when(dataSourceService.verifyDataSourceAccessAndGetRawMetadata(
@@ -624,6 +641,11 @@ public class SparkQueryDispatcherTest {
 
   @Test
   void testDispatchRecoverIndexQuery() {
+    DataSourceMetadata dataSourceMetadata = constructMyGlueDataSourceMetadata();
+    when(dataSourceService.verifyDataSourceAccessAndGetRawMetadata(
+            MY_GLUE, asyncQueryRequestContext))
+        .thenReturn(dataSourceMetadata);
+
     String query = "RECOVER INDEX JOB `flint_spark_catalog_default_test_skipping_index`";
     Assertions.assertThrows(
         IllegalArgumentException.class,
@@ -748,7 +770,17 @@ public class SparkQueryDispatcherTest {
     when(emrServerlessClient.getJobRunResult(EMRS_APPLICATION_ID, EMR_JOB_ID))
         .thenReturn(new GetJobRunResult().withJobRun(new JobRun().withState(JobRunState.PENDING)));
     // simulate result index is not created yet
-    when(jobExecutionResponseReader.getResultWithJobId(EMR_JOB_ID, null))
+    when(jobExecutionResponseReader.getResultFromResultIndex(
+            AsyncQueryJobMetadata.builder()
+                .jobId(EMR_JOB_ID)
+                .queryId(QUERY_ID)
+                .applicationId(EMRS_APPLICATION_ID)
+                .jobId(EMR_JOB_ID)
+                .jobType(JobType.INTERACTIVE)
+                .datasourceName(MY_GLUE)
+                .metadata(ImmutableMap.of())
+                .build(),
+            asyncQueryRequestContext))
         .thenReturn(new JSONObject());
 
     JSONObject result =
@@ -765,7 +797,7 @@ public class SparkQueryDispatcherTest {
     doReturn(StatementState.WAITING).when(statement).getStatementState();
     doReturn(new JSONObject())
         .when(jobExecutionResponseReader)
-        .getResultWithQueryId(eq(MOCK_STATEMENT_ID), any());
+        .getResultWithQueryId(eq(MOCK_STATEMENT_ID), any(), eq(asyncQueryRequestContext));
 
     JSONObject result =
         sparkQueryDispatcher.getQueryResponse(
@@ -781,7 +813,7 @@ public class SparkQueryDispatcherTest {
     doReturn(Optional.empty()).when(sessionManager).getSession(MOCK_SESSION_ID, MY_GLUE);
     doReturn(new JSONObject())
         .when(jobExecutionResponseReader)
-        .getResultWithQueryId(eq(MOCK_STATEMENT_ID), any());
+        .getResultWithQueryId(eq(MOCK_STATEMENT_ID), any(), eq(asyncQueryRequestContext));
 
     IllegalArgumentException exception =
         Assertions.assertThrows(
@@ -801,7 +833,7 @@ public class SparkQueryDispatcherTest {
     doReturn(Optional.empty()).when(session).get(any(), eq(asyncQueryRequestContext));
     doReturn(new JSONObject())
         .when(jobExecutionResponseReader)
-        .getResultWithQueryId(eq(MOCK_STATEMENT_ID), any());
+        .getResultWithQueryId(eq(MOCK_STATEMENT_ID), any(), eq(asyncQueryRequestContext));
 
     IllegalArgumentException exception =
         Assertions.assertThrows(
@@ -823,12 +855,25 @@ public class SparkQueryDispatcherTest {
     resultMap.put(STATUS_FIELD, "SUCCESS");
     resultMap.put(ERROR_FIELD, "");
     queryResult.put(DATA_FIELD, resultMap);
-    when(jobExecutionResponseReader.getResultWithJobId(EMR_JOB_ID, null)).thenReturn(queryResult);
+    AsyncQueryJobMetadata asyncQueryJobMetadata =
+        AsyncQueryJobMetadata.builder()
+            .queryId(QUERY_ID)
+            .applicationId(EMRS_APPLICATION_ID)
+            .jobId(EMR_JOB_ID)
+            .jobType(JobType.INTERACTIVE)
+            .datasourceName(MY_GLUE)
+            .metadata(ImmutableMap.of())
+            .jobId(EMR_JOB_ID)
+            .build();
+    when(jobExecutionResponseReader.getResultFromResultIndex(
+            asyncQueryJobMetadata, asyncQueryRequestContext))
+        .thenReturn(queryResult);
 
     JSONObject result =
         sparkQueryDispatcher.getQueryResponse(asyncQueryJobMetadata(), asyncQueryRequestContext);
 
-    verify(jobExecutionResponseReader, times(1)).getResultWithJobId(EMR_JOB_ID, null);
+    verify(jobExecutionResponseReader, times(1))
+        .getResultFromResultIndex(asyncQueryJobMetadata, asyncQueryRequestContext);
     assertEquals(
         new HashSet<>(Arrays.asList(DATA_FIELD, STATUS_FIELD, ERROR_FIELD)), result.keySet());
     JSONObject dataJson = new JSONObject();

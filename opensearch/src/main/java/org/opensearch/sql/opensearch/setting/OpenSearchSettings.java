@@ -71,6 +71,13 @@ public class OpenSearchSettings extends Settings {
           Setting.Property.NodeScope,
           Setting.Property.Dynamic);
 
+  public static final Setting<?> SQL_PAGINATION_API_SEARCH_AFTER_SETTING =
+      Setting.boolSetting(
+          Key.SQL_PAGINATION_API_SEARCH_AFTER.getKeyValue(),
+          true,
+          Setting.Property.NodeScope,
+          Setting.Property.Dynamic);
+
   public static final Setting<?> PPL_ENABLED_SETTING =
       Setting.boolSetting(
           Key.PPL_ENABLED.getKeyValue(),
@@ -222,6 +229,13 @@ public class OpenSearchSettings extends Settings {
           Setting.Property.NodeScope,
           Setting.Property.Dynamic);
 
+  public static final Setting<?> FIELD_TYPE_TOLERANCE_SETTING =
+      Setting.boolSetting(
+          Key.FIELD_TYPE_TOLERANCE.getKeyValue(),
+          true,
+          Setting.Property.NodeScope,
+          Setting.Property.Dynamic);
+
   /** Construct OpenSearchSetting. The OpenSearchSetting must be singleton. */
   @SuppressWarnings("unchecked")
   public OpenSearchSettings(ClusterSettings clusterSettings) {
@@ -250,6 +264,12 @@ public class OpenSearchSettings extends Settings {
         Key.SQL_DELETE_ENABLED,
         SQL_DELETE_ENABLED_SETTING,
         new Updater(Key.SQL_DELETE_ENABLED));
+    register(
+        settingBuilder,
+        clusterSettings,
+        Key.SQL_PAGINATION_API_SEARCH_AFTER,
+        SQL_PAGINATION_API_SEARCH_AFTER_SETTING,
+        new Updater(Key.SQL_PAGINATION_API_SEARCH_AFTER));
     register(
         settingBuilder,
         clusterSettings,
@@ -359,13 +379,19 @@ public class OpenSearchSettings extends Settings {
         clusterSettings,
         Key.SESSION_INACTIVITY_TIMEOUT_MILLIS,
         SESSION_INACTIVITY_TIMEOUT_MILLIS_SETTING,
-        new Updater((Key.SESSION_INACTIVITY_TIMEOUT_MILLIS)));
+        new Updater(Key.SESSION_INACTIVITY_TIMEOUT_MILLIS));
     register(
         settingBuilder,
         clusterSettings,
         Key.STREAMING_JOB_HOUSEKEEPER_INTERVAL,
         STREAMING_JOB_HOUSEKEEPER_INTERVAL_SETTING,
-        new Updater((Key.STREAMING_JOB_HOUSEKEEPER_INTERVAL)));
+        new Updater(Key.STREAMING_JOB_HOUSEKEEPER_INTERVAL));
+    register(
+        settingBuilder,
+        clusterSettings,
+        Key.FIELD_TYPE_TOLERANCE,
+        FIELD_TYPE_TOLERANCE_SETTING,
+        new Updater(Key.FIELD_TYPE_TOLERANCE));
     defaultSettings = settingBuilder.build();
   }
 
@@ -422,6 +448,7 @@ public class OpenSearchSettings extends Settings {
         .add(SQL_SLOWLOG_SETTING)
         .add(SQL_CURSOR_KEEP_ALIVE_SETTING)
         .add(SQL_DELETE_ENABLED_SETTING)
+        .add(SQL_PAGINATION_API_SEARCH_AFTER_SETTING)
         .add(PPL_ENABLED_SETTING)
         .add(QUERY_MEMORY_LIMIT_SETTING)
         .add(QUERY_SIZE_LIMIT_SETTING)
@@ -441,6 +468,7 @@ public class OpenSearchSettings extends Settings {
         .add(DATASOURCES_LIMIT_SETTING)
         .add(SESSION_INACTIVITY_TIMEOUT_MILLIS_SETTING)
         .add(STREAMING_JOB_HOUSEKEEPER_INTERVAL_SETTING)
+        .add(FIELD_TYPE_TOLERANCE_SETTING)
         .build();
   }
 

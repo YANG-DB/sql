@@ -6,7 +6,6 @@
 package org.opensearch.sql.spark.dispatcher;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import lombok.AllArgsConstructor;
 import org.jetbrains.annotations.NotNull;
@@ -24,6 +23,7 @@ import org.opensearch.sql.spark.dispatcher.model.JobType;
 import org.opensearch.sql.spark.execution.session.SessionManager;
 import org.opensearch.sql.spark.rest.model.LangType;
 import org.opensearch.sql.spark.utils.SQLQueryUtils;
+import org.opensearch.sql.spark.validator.SQLQueryValidator;
 
 /** This class takes care of understanding query and dispatching job query to emr serverless. */
 @AllArgsConstructor
@@ -38,6 +38,7 @@ public class SparkQueryDispatcher {
   private final SessionManager sessionManager;
   private final QueryHandlerFactory queryHandlerFactory;
   private final QueryIdProvider queryIdProvider;
+  private final SQLQueryValidator sqlQueryValidator;
 
   public DispatchQueryResponse dispatch(
       DispatchQueryRequest dispatchQueryRequest,
@@ -50,17 +51,12 @@ public class SparkQueryDispatcher {
       String query = dispatchQueryRequest.getQuery();
 
       if (SQLQueryUtils.isFlintExtensionQuery(query)) {
+        sqlQueryValidator.validateFlintExtensionQuery(query, dataSourceMetadata.getConnector());
         return handleFlintExtensionQuery(
             dispatchQueryRequest, asyncQueryRequestContext, dataSourceMetadata);
       }
 
-      List<String> validationErrors =
-          SQLQueryUtils.validateSparkSqlQuery(
-              dataSourceService.getDataSource(dispatchQueryRequest.getDatasource()), query);
-      if (!validationErrors.isEmpty()) {
-        throw new IllegalArgumentException(
-            "Query is not allowed: " + String.join(", ", validationErrors));
-      }
+      sqlQueryValidator.validate(query, dataSourceMetadata.getConnector());
     }
     return handleDefaultQuery(dispatchQueryRequest, asyncQueryRequestContext, dataSourceMetadata);
   }
