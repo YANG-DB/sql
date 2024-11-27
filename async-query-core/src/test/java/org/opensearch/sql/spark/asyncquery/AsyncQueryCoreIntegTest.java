@@ -77,6 +77,7 @@ import org.opensearch.sql.spark.flint.FlintIndexStateModelService;
 import org.opensearch.sql.spark.flint.IndexDMLResultStorageService;
 import org.opensearch.sql.spark.flint.operation.FlintIndexOpFactory;
 import org.opensearch.sql.spark.leasemanager.LeaseManager;
+import org.opensearch.sql.spark.leasemanager.model.LeaseRequest;
 import org.opensearch.sql.spark.metrics.MetricsService;
 import org.opensearch.sql.spark.parameter.SparkParameterComposerCollection;
 import org.opensearch.sql.spark.parameter.SparkSubmitParametersBuilderProvider;
@@ -87,7 +88,8 @@ import org.opensearch.sql.spark.rest.model.LangType;
 import org.opensearch.sql.spark.scheduler.AsyncQueryScheduler;
 import org.opensearch.sql.spark.validator.DefaultGrammarElementValidator;
 import org.opensearch.sql.spark.validator.GrammarElementValidatorProvider;
-import org.opensearch.sql.spark.validator.S3GlueGrammarElementValidator;
+import org.opensearch.sql.spark.validator.PPLQueryValidator;
+import org.opensearch.sql.spark.validator.S3GlueSQLGrammarElementValidator;
 import org.opensearch.sql.spark.validator.SQLQueryValidator;
 
 /**
@@ -137,6 +139,7 @@ public class AsyncQueryCoreIntegTest {
   @Captor ArgumentCaptor<FlintIndexOptions> flintIndexOptionsArgumentCaptor;
   @Captor ArgumentCaptor<StartJobRunRequest> startJobRunRequestArgumentCaptor;
   @Captor ArgumentCaptor<CreateSessionRequest> createSessionRequestArgumentCaptor;
+  @Captor ArgumentCaptor<LeaseRequest> leaseRequestArgumentCaptor;
 
   AsyncQueryExecutorService asyncQueryExecutorService;
 
@@ -182,15 +185,20 @@ public class AsyncQueryCoreIntegTest {
     SQLQueryValidator sqlQueryValidator =
         new SQLQueryValidator(
             new GrammarElementValidatorProvider(
-                ImmutableMap.of(DataSourceType.S3GLUE, new S3GlueGrammarElementValidator()),
+                ImmutableMap.of(DataSourceType.S3GLUE, new S3GlueSQLGrammarElementValidator()),
                 new DefaultGrammarElementValidator()));
+    PPLQueryValidator pplQueryValidator =
+        new PPLQueryValidator(
+            new GrammarElementValidatorProvider(
+                ImmutableMap.of(), new DefaultGrammarElementValidator()));
     SparkQueryDispatcher sparkQueryDispatcher =
         new SparkQueryDispatcher(
             dataSourceService,
             sessionManager,
             queryHandlerFactory,
             queryIdProvider,
-            sqlQueryValidator);
+            sqlQueryValidator,
+            pplQueryValidator);
     asyncQueryExecutorService =
         new AsyncQueryExecutorServiceImpl(
             asyncQueryJobMetadataStorageService,
@@ -267,7 +275,8 @@ public class AsyncQueryCoreIntegTest {
     assertEquals(SESSION_ID, response.getSessionId());
     verifyGetQueryIdCalled();
     verifyGetSessionIdCalled();
-    verify(leaseManager).borrow(any());
+    verify(leaseManager).borrow(leaseRequestArgumentCaptor.capture());
+    assertEquals(JobType.INTERACTIVE, leaseRequestArgumentCaptor.getValue().getJobType());
     verifyStartJobRunCalled();
     verifyStoreJobMetadataCalled(JOB_ID, QueryState.WAITING, JobType.INTERACTIVE);
   }
@@ -356,9 +365,36 @@ public class AsyncQueryCoreIntegTest {
     assertEquals(QUERY_ID, response.getQueryId());
     assertNull(response.getSessionId());
     verifyGetQueryIdCalled();
-    verify(leaseManager).borrow(any());
+    verify(leaseManager).borrow(leaseRequestArgumentCaptor.capture());
+    assertEquals(JobType.STREAMING, leaseRequestArgumentCaptor.getValue().getJobType());
     verifyStartJobRunCalled();
     verifyStoreJobMetadataCalled(JOB_ID, QueryState.WAITING, JobType.STREAMING);
+  }
+
+  @Test
+  public void createBatchQuery() {
+    givenSparkExecutionEngineConfigIsSupplied();
+    givenValidDataSourceMetadataExist();
+    when(queryIdProvider.getQueryId(any(), eq(asyncQueryRequestContext))).thenReturn(QUERY_ID);
+    when(awsemrServerless.startJobRun(any()))
+        .thenReturn(new StartJobRunResult().withApplicationId(APPLICATION_ID).withJobRunId(JOB_ID));
+
+    CreateAsyncQueryResponse response =
+        asyncQueryExecutorService.createAsyncQuery(
+            new CreateAsyncQueryRequest(
+                "CREATE INDEX index_name ON table_name(l_orderkey, l_quantity)"
+                    + " WITH (auto_refresh = false)",
+                DATASOURCE_NAME,
+                LangType.SQL),
+            asyncQueryRequestContext);
+
+    assertEquals(QUERY_ID, response.getQueryId());
+    assertNull(response.getSessionId());
+    verifyGetQueryIdCalled();
+    verify(leaseManager).borrow(leaseRequestArgumentCaptor.capture());
+    assertEquals(JobType.BATCH, leaseRequestArgumentCaptor.getValue().getJobType());
+    verifyStartJobRunCalled();
+    verifyStoreJobMetadataCalled(JOB_ID, QueryState.WAITING, JobType.BATCH);
   }
 
   private void verifyStartJobRunCalled() {
@@ -413,7 +449,8 @@ public class AsyncQueryCoreIntegTest {
     assertEquals(QUERY_ID, response.getQueryId());
     assertNull(response.getSessionId());
     verifyGetQueryIdCalled();
-    verify(leaseManager).borrow(any());
+    verify(leaseManager).borrow(leaseRequestArgumentCaptor.capture());
+    assertEquals(JobType.REFRESH, leaseRequestArgumentCaptor.getValue().getJobType());
     verifyStartJobRunCalled();
     verifyStoreJobMetadataCalled(JOB_ID, QueryState.WAITING, JobType.REFRESH);
   }
@@ -439,7 +476,8 @@ public class AsyncQueryCoreIntegTest {
     assertEquals(SESSION_ID, response.getSessionId());
     verifyGetQueryIdCalled();
     verifyGetSessionIdCalled();
-    verify(leaseManager).borrow(any());
+    verify(leaseManager).borrow(leaseRequestArgumentCaptor.capture());
+    assertEquals(JobType.INTERACTIVE, leaseRequestArgumentCaptor.getValue().getJobType());
     verifyStartJobRunCalled();
     verifyStoreJobMetadataCalled(JOB_ID, QueryState.WAITING, JobType.INTERACTIVE);
   }
